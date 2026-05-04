@@ -1,0 +1,42 @@
+name: Build Windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Flutter einrichten
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: 'stable'
+
+      - name: Abhängigkeiten installieren
+        run: flutter pub get
+
+      - name: Windows-Build erstellen
+        run: flutter build windows --release
+
+      - name: Build als ZIP packen
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          $src = "build\windows\x64\runner\Release"
+          $zip = "fx-calc-$version-windows.zip"
+          Compress-Archive -Path "$src\*" -DestinationPath $zip
+          echo "ZIP_NAME=$zip" >> $env:GITHUB_ENV
+
+      - name: Release erstellen und ZIP hochladen
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_NAME }}
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
