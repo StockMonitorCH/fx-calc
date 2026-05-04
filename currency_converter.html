@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Rechner & Währungsrechner</title>
+<style>
+  :root {
+    --bg: #f0f4f8;
+    --surface: #ffffff;
+    --accent: #2980b9;
+    --accent2: #1a5276;
+    --result-bg: #eaf4fb;
+    --result-color: #1a5276;
+    --btn-num: #d6eaf8;
+    --btn-num-text: #1a5276;
+    --btn-op: #2980b9;
+    --btn-op-text: #ffffff;
+    --btn-func: #bdc3c7;
+    --btn-func-text: #2c3e50;
+    --btn-eq: #e67e22;
+    --btn-eq-text: #ffffff;
+    --tab-active-bg: #2980b9;
+    --tab-active-text: #ffffff;
+    --tab-inactive-bg: #d6eaf8;
+    --tab-inactive-text: #1a5276;
+    --text: #1a1a2e;
+    --subtext: #666;
+    --input-border: #aac4e0;
+    --shadow: 0 2px 12px rgba(0,0,0,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1b2a;
+      --surface: #132639;
+      --accent: #1a4a6b;
+      --accent2: #7fc8f0;
+      --result-bg: #0d2a3d;
+      --result-color: #7fc8f0;
+      --btn-num: #1e3a4f;
+      --btn-num-text: #c8e6f5;
+      --btn-op: #1a4a6b;
+      --btn-op-text: #7fc8f0;
+      --btn-func: #1c2d3a;
+      --btn-func-text: #8899aa;
+      --btn-eq: #c0590e;
+      --btn-eq-text: #ffffff;
+      --tab-active-bg: #1a4a6b;
+      --tab-active-text: #7fc8f0;
+      --tab-inactive-bg: #0d2a3d;
+      --tab-inactive-text: #5588aa;
+      --text: #d0e8f5;
+      --subtext: #6688aa;
+      --input-border: #1e4060;
+      --shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    min-height: 100dvh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 12px 8px 24px;
+  }
+
+  .app {
+    width: 100%;
+    max-width: 480px;
+    background: var(--surface);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex;
+    border-bottom: 2px solid var(--input-border);
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 13px 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 700;
+    transition: background 0.2s, color 0.2s;
+    background: var(--tab-inactive-bg);
+    color: var(--tab-inactive-text);
+  }
+  .tab-btn.active {
+    background: var(--tab-active-bg);
+    color: var(--tab-active-text);
+  }
+
+  /* ── Seiten ── */
+  .page { display: none; padding: 14px 14px 16px; }
+  .page.visible { display: block; }
+
+  /* ── Taschenrechner ── */
+  .calc-history {
+    text-align: right;
+    font-size: 12px;
+    color: var(--subtext);
+    min-height: 20px;
+    margin-bottom: 4px;
+    padding: 0 4px;
+  }
+  .calc-display {
+    background: var(--result-bg);
+    color: var(--result-color);
+    border-radius: 10px;
+    padding: 12px 14px;
+    text-align: right;
+    font-size: 32px;
+    font-weight: 700;
+    min-height: 60px;
+    word-break: break-all;
+    margin-bottom: 10px;
+    overflow: hidden;
+    line-height: 1.2;
+  }
+  .btn-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+  }
+  .btn-grid button {
+    border: none;
+    border-radius: 10px;
+    padding: 0;
+    height: 56px;
+    font-size: 17px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.1s, transform 0.08s;
+    touch-action: manipulation;
+  }
+  .btn-grid button:active { opacity: 0.7; transform: scale(0.94); }
+
+  .btn-num  { background: var(--btn-num);  color: var(--btn-num-text); }
+  .btn-op   { background: var(--btn-op);   color: var(--btn-op-text);  }
+  .btn-func { background: var(--btn-func); color: var(--btn-func-text);}
+  .btn-eq   { background: var(--btn-eq);   color: var(--btn-eq-text); font-size: 22px; }
+  .span2 { grid-column: span 2; }
+
+  /* ── Währungsrechner ── */
+  .hint {
+    text-align: center;
+    font-size: 11px;
+    color: var(--subtext);
+    margin-bottom: 10px;
+  }
+  .input-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .amount-input {
+    flex: 1 1 100px;
+    padding: 10px 12px;
+    font-size: 18px;
+    border: 2px solid var(--input-border);
+    border-radius: 8px;
+    text-align: right;
+    background: var(--result-bg);
+    color: var(--result-color);
+    min-width: 90px;
+    outline: none;
+  }
+  .amount-input:focus { border-color: var(--accent); }
+  .curr-select {
+    flex: 1 1 110px;
+    padding: 10px 6px;
+    font-size: 15px;
+    border: 2px solid var(--input-border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    min-width: 100px;
+    outline: none;
+  }
+  .arrow {
+    font-size: 22px;
+    color: var(--accent2);
+    flex-shrink: 0;
+    padding: 0 2px;
+  }
+  .result-box {
+    background: var(--result-bg);
+    color: var(--result-color);
+    border-radius: 10px;
+    padding: 14px 16px;
+    text-align: center;
+    font-size: 20px;
+    font-weight: 700;
+    min-height: 52px;
+    margin-bottom: 6px;
+    word-break: break-word;
+  }
+  .rate-line {
+    text-align: center;
+    font-size: 11px;
+    color: var(--subtext);
+    margin-bottom: 4px;
+    min-height: 18px;
+  }
+  .status-line {
+    text-align: center;
+    font-size: 11px;
+    color: var(--subtext);
+    margin-bottom: 10px;
+    min-height: 18px;
+  }
+  .curr-btn-row {
+    display: flex;
+    gap: 8px;
+  }
+  .curr-btn {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    background: var(--btn-op);
+    color: var(--btn-op-text);
+    touch-action: manipulation;
+    transition: opacity 0.15s;
+  }
+  .curr-btn:active { opacity: 0.75; }
+  .curr-btn.swap-btn {
+    background: var(--btn-func);
+    color: var(--btn-func-text);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Tab-Leiste -->
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-calc" onclick="switchTab('calc')">🔢 Rechner</button>
+    <button class="tab-btn"        id="tab-curr" onclick="switchTab('curr')">💱 Währung</button>
+  </div>
+
+  <!-- ══ Taschenrechner ══ -->
+  <div class="page visible" id="page-calc">
+    <div class="calc-history" id="calc-history">&nbsp;</div>
+    <div class="calc-display" id="calc-display">0</div>
+    <div class="btn-grid">
+      <!-- Zeile 1 -->
+      <button class="btn-func" onclick="calcBtn('CE')">CE</button>
+      <button class="btn-func" onclick="calcBtn('←')">←</button>
+      <button class="btn-func" onclick="calcBtn('(')"> ( </button>
+      <button class="btn-func" onclick="calcBtn(')')"> ) </button>
+      <button class="btn-func" onclick="calcBtn('%')">%</button>
+      <!-- Zeile 2 -->
+      <button class="btn-func" onclick="calcBtn('√')">√</button>
+      <button class="btn-func" onclick="calcBtn('x²')">x²</button>
+      <button class="btn-num"  onclick="calcBtn('7')">7</button>
+      <button class="btn-num"  onclick="calcBtn('8')">8</button>
+      <button class="btn-num"  onclick="calcBtn('9')">9</button>
+      <!-- Zeile 3 -->
+      <button class="btn-op"   onclick="calcBtn('÷')">÷</button>
+      <button class="btn-op"   onclick="calcBtn('×')">×</button>
+      <button class="btn-num"  onclick="calcBtn('4')">4</button>
+      <button class="btn-num"  onclick="calcBtn('5')">5</button>
+      <button class="btn-num"  onclick="calcBtn('6')">6</button>
+      <!-- Zeile 4 -->
+      <button class="btn-op"   onclick="calcBtn('-')">−</button>
+      <button class="btn-op"   onclick="calcBtn('+')">+</button>
+      <button class="btn-num"  onclick="calcBtn('1')">1</button>
+      <button class="btn-num"  onclick="calcBtn('2')">2</button>
+      <button class="btn-num"  onclick="calcBtn('3')">3</button>
+      <!-- Zeile 5 -->
+      <button class="btn-func" onclick="calcBtn('±')">±</button>
+      <button class="btn-num"  onclick="calcBtn('.')">.</button>
+      <button class="btn-num"  onclick="calcBtn('0')">0</button>
+      <button class="btn-eq span2" onclick="calcBtn('=')">=</button>
+    </div>
+  </div>
+
+  <!-- ══ Währungsrechner ══ -->
+  <div class="page" id="page-curr">
+    <div class="hint">Kurse via frankfurter.app &amp; Yahoo Finance  •  Krypto separat via coinbase</div>
+
+    <div class="input-row">
+      <input class="amount-input" id="amount" type="number" value="1" inputmode="decimal" />
+      <select class="curr-select" id="from-curr"></select>
+      <span class="arrow">→</span>
+      <select class="curr-select" id="to-curr"></select>
+    </div>
+
+    <div class="result-box" id="result-box">—</div>
+    <div class="rate-line"   id="rate-line"></div>
+    <div class="status-line" id="status-line"></div>
+
+    <div class="curr-btn-row">
+      <button class="curr-btn" onclick="doConvert()">💱 Umrechnen</button>
+      <button class="curr-btn swap-btn" onclick="doSwap()">⇄ Tauschen</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ═══════════════════════════════ Taschenrechner ═══════════════════════════ */
+
+let expr = '';         // interne Python-ähnliche Syntax
+let displayExpr = '';  // Anzeige-Text
+let justEvaluated = false;
+
+function calcDisplay() {
+  const el = document.getElementById('calc-display');
+  let open = (displayExpr.match(/\(/g)||[]).length - (displayExpr.match(/\)/g)||[]).length;
+  let txt = displayExpr + (open > 0 ? ')'.repeat(open) : '');
+  el.textContent = txt || '0';
+  // Schriftgrösse dynamisch
+  const len = txt.length;
+  el.style.fontSize = len > 18 ? (len > 26 ? '20px' : '26px') : '32px';
+}
+
+function calcBtn(t) {
+  const histEl = document.getElementById('calc-history');
+
+  if (t === 'CE') {
+    expr = ''; displayExpr = ''; justEvaluated = false;
+    document.getElementById('calc-display').textContent = '0';
+    histEl.innerHTML = '&nbsp;';
+    return;
+  }
+  if (t === '←') {
+    if (justEvaluated) {
+      expr = ''; displayExpr = ''; justEvaluated = false;
+      document.getElementById('calc-display').textContent = '0';
+      return;
+    }
+    // letztes sichtbares Zeichen entfernen
+    displayExpr = displayExpr.slice(0, -1);
+    // expr: letztes Zeichen entfernen (bei √( mehrere)
+    if (expr.endsWith('Math.sqrt(')) { expr = expr.slice(0, -10); }
+    else if (expr.endsWith('**2'))   { expr = expr.slice(0, -3); }
+    else if (expr.endsWith('/100'))  { expr = expr.slice(0, -4); }
+    else                              { expr = expr.slice(0, -1); }
+    calcDisplay();
+    return;
+  }
+  if (t === '=') { calcEvaluate(); return; }
+
+  if (justEvaluated) {
+    const ops = ['+','-','×','÷','%','x²'];
+    if (!ops.includes(t)) { expr = ''; displayExpr = ''; }
+    justEvaluated = false;
+  }
+
+  if (t === '√')  { expr += 'Math.sqrt('; displayExpr += '√('; }
+  else if (t === 'x²') { expr += '**2'; displayExpr += '²'; }
+  else if (t === '×')  { expr += '*';   displayExpr += '×'; }
+  else if (t === '÷')  { expr += '/';   displayExpr += '÷'; }
+  else if (t === '%')  { expr += '/100'; displayExpr += '%'; }
+  else if (t === '±')  {
+    if (expr) { expr = `-( ${expr})`; displayExpr = `-(${displayExpr})`; }
+    else      { expr = '-'; displayExpr = '-'; }
+  }
+  else { expr += t; displayExpr += t; }
+
+  calcDisplay();
+}
+
+function calcEvaluate() {
+  if (!expr) return;
+  let open = (expr.match(/\(/g)||[]).length - (expr.match(/\)/g)||[]).length;
+  let evalExpr = expr + ')'.repeat(Math.max(open, 0));
+  let displayFull = displayExpr + ')'.repeat(Math.max(open, 0));
+
+  let result;
+  try {
+    result = Function('"use strict"; return (' + evalExpr + ')')();
+    if (!isFinite(result)) throw new Error('Division durch 0');
+  } catch(e) {
+    document.getElementById('calc-display').textContent = '❌ ' + e.message;
+    expr = ''; displayExpr = ''; justEvaluated = false;
+    return;
+  }
+
+  document.getElementById('calc-history').textContent = displayFull + ' =';
+  const resultStr = formatNumber(result);
+  document.getElementById('calc-display').textContent = resultStr;
+  document.getElementById('calc-display').style.fontSize = resultStr.length > 18 ? '22px' : '32px';
+  // Rohwert für Weitergabe
+  expr = String(result);
+  displayExpr = resultStr;
+  justEvaluated = true;
+}
+
+function formatNumber(n) {
+  if (Number.isInteger(n) && Math.abs(n) < 1e15) return n.toLocaleString('de-CH');
+  return parseFloat(n.toPrecision(10)).toLocaleString('de-CH', {maximumFractionDigits: 10});
+}
+
+function calcGetValue() {
+  if (justEvaluated && expr && !isNaN(parseFloat(expr))) return parseFloat(expr);
+  return null;
+}
+
+function calcSetValue(val) {
+  if (val === null || val === undefined || isNaN(val)) return;
+  expr = String(val);
+  displayExpr = formatNumber(val);
+  justEvaluated = true;
+  document.getElementById('calc-display').textContent = displayExpr;
+  document.getElementById('calc-history').innerHTML = '&nbsp;';
+}
+
+/* ═══════════════════════════════ Währungsrechner ══════════════════════════ */
+
+const FIAT = ['USD','CHF','EUR','GBP','JPY','CAD','AUD','CNY',
+              'HKD','SEK','NOK','DKK','NZD','SGD','TWD','MXN','BRL',
+              'INR','KRW','TRY'];
+const CRYPTO = ['BTC','ETH','XRP','SOL','BNB','USDT','DOGE','ADA'];
+const ALL_CURRENCIES = [...FIAT,
+  '── Krypto ──', ...CRYPTO,
+  '── Edelmetalle ──',
+  'XAU (Gold/oz)', 'XAG (Silber/oz)', 'XPT (Platin/oz)', 'XPD (Palladium/oz)', 'XCU (Kupfer/lb)'
+];
+const SEPARATORS = ['── Krypto ──', '── Edelmetalle ──'];
+const PRECIOUS = {
+  'XAU (Gold/oz)': 'XAUUSD=X', 'XAG (Silber/oz)': 'XAGUSD=X',
+  'XPT (Platin/oz)': 'XPTUSD=X', 'XPD (Palladium/oz)': 'XPDUSD=X',
+  'XCU (Kupfer/lb)': 'HG=F'
+};
+const CRYPTO_IDS = {
+  'BTC':'bitcoin','ETH':'ethereum','XRP':'ripple','SOL':'solana',
+  'BNB':'binancecoin','USDT':'tether','DOGE':'dogecoin','ADA':'cardano'
+};
+
+function buildSelects() {
+  ['from-curr','to-curr'].forEach(id => {
+    const sel = document.getElementById(id);
+    ALL_CURRENCIES.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      if (SEPARATORS.includes(c)) opt.disabled = true;
+      sel.appendChild(opt);
+    });
+  });
+  document.getElementById('from-curr').value = 'USD';
+  document.getElementById('to-curr').value   = 'CHF';
+}
+
+function currGetValue() {
+  const box = document.getElementById('result-box').textContent;
+  if (box.includes('=')) {
+    const right = box.split('=').pop().trim().split(' ')[0];
+    const n = parseFloat(right.replace(/['']/g,''));
+    if (!isNaN(n)) return n;
+  }
+  return parseFloat(document.getElementById('amount').value) || null;
+}
+
+function currSetValue(val) {
+  if (val === null || isNaN(val)) return;
+  document.getElementById('amount').value = val;
+}
+
+async function getRate(from, to) {
+  if (from === to) return 1;
+  if (SEPARATORS.includes(from) || SEPARATORS.includes(to))
+    throw new Error('Trennzeile – bitte Währung wählen');
+
+  // Edelmetall → andere Währung
+  const isPrecFrom = from in PRECIOUS, isPrecTo = to in PRECIOUS;
+  if (isPrecFrom || isPrecTo) {
+    return await getPreciousRate(from, to);
+  }
+
+  // Krypto via CoinGecko
+  const isCryptoFrom = from in CRYPTO_IDS, isCryptoTo = to in CRYPTO_IDS;
+  if (isCryptoFrom || isCryptoTo) {
+    return await getCryptoRate(from, to);
+  }
+
+  // Fiat via frankfurter.app
+  const r = await fetch(`https://api.frankfurter.app/latest?from=${from}&to=${to}`);
+  if (!r.ok) throw new Error('Kurs nicht verfügbar');
+  const data = await r.json();
+  return data.rates[to];
+}
+
+async function getPreciousRate(from, to) {
+  // Spot-Kurs via Yahoo Finance (CORS-freundlich über allorigins Proxy)
+  async function getSpotUSD(sym) {
+    const ticker = PRECIOUS[sym];
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+    const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const r = await fetch(proxy);
+    const d = await r.json();
+    return d.chart.result[0].meta.regularMarketPrice;
+  }
+
+  if (from in PRECIOUS && to === 'USD') return await getSpotUSD(from);
+  if (to in PRECIOUS && from === 'USD') return 1 / await getSpotUSD(to);
+  if (from in PRECIOUS) {
+    const spotUSD = await getSpotUSD(from);
+    const fxRate = await getRate('USD', to);
+    return spotUSD * fxRate;
+  }
+  if (to in PRECIOUS) {
+    const spotUSD = await getSpotUSD(to);
+    const fxRate = await getRate(from, 'USD');
+    return fxRate / spotUSD;
+  }
+}
+
+async function getCryptoRate(from, to) {
+  let ids = '';
+  let needFrom = from in CRYPTO_IDS, needTo = to in CRYPTO_IDS;
+  if (needFrom) ids = CRYPTO_IDS[from];
+  if (needTo)   ids = ids ? ids + ',' + CRYPTO_IDS[to] : CRYPTO_IDS[to];
+
+  // CoinGecko kostenlose API
+  const vsCurrency = needFrom ? (needTo ? 'usd' : to.toLowerCase()) : from.toLowerCase();
+  const safeVs = FIAT.includes(vsCurrency.toUpperCase()) ? vsCurrency : 'usd';
+  const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=${safeVs}`);
+  if (!r.ok) throw new Error('Krypto-Kurs nicht verfügbar');
+  const d = await r.json();
+
+  if (needFrom && !needTo) {
+    return d[CRYPTO_IDS[from]][safeVs];
+  }
+  if (needTo && !needFrom) {
+    return 1 / d[CRYPTO_IDS[to]][safeVs];
+  }
+  // beide Krypto: from→USD, then USD→to
+  const fromUSD = d[CRYPTO_IDS[from]]['usd'];
+  const toUSD   = d[CRYPTO_IDS[to]]['usd'];
+  return fromUSD / toUSD;
+}
+
+async function doConvert() {
+  const amountStr = document.getElementById('amount').value.trim().replace(',','.');
+  const amount = parseFloat(amountStr);
+  if (isNaN(amount)) {
+    document.getElementById('result-box').textContent = '❌ Ungültiger Betrag';
+    return;
+  }
+  const from = document.getElementById('from-curr').value;
+  const to   = document.getElementById('to-curr').value;
+
+  document.getElementById('status-line').textContent  = '⚡ Lade Kursdaten…';
+  document.getElementById('result-box').textContent   = '—';
+  document.getElementById('rate-line').textContent    = '';
+
+  try {
+    const rate = await getRate(from, to);
+    const converted = amount * rate;
+    const fmtAmt = fmtVal(amount);
+    const fmtRes = fmtVal(converted);
+    document.getElementById('result-box').textContent = `${fmtAmt} ${from}  =  ${fmtRes} ${to}`;
+    document.getElementById('rate-line').textContent  = `1 ${from} = ${fmtVal(rate)} ${to}`;
+    document.getElementById('status-line').textContent = '✓ Kurs aktuell';
+    // Schriftgrösse anpassen
+    const box = document.getElementById('result-box');
+    const len = box.textContent.length;
+    box.style.fontSize = len > 40 ? '14px' : (len > 28 ? '17px' : '20px');
+  } catch(e) {
+    document.getElementById('result-box').textContent  = '❌ Kurs nicht verfügbar';
+    document.getElementById('status-line').textContent = '❌ ' + e.message;
+  }
+}
+
+function fmtVal(n) {
+  if (Math.abs(n) >= 1) return n.toLocaleString('de-CH', {minimumFractionDigits:2, maximumFractionDigits:4});
+  return n.toLocaleString('de-CH', {minimumFractionDigits:4, maximumFractionDigits:8});
+}
+
+function doSwap() {
+  const f = document.getElementById('from-curr');
+  const t = document.getElementById('to-curr');
+  [f.value, t.value] = [t.value, f.value];
+}
+
+/* ═════════════════════ Tab-Umschalter mit Wertübergabe ════════════════════ */
+
+function switchTab(tab) {
+  const isCalc = tab === 'calc';
+
+  // Wert übertragen
+  if (isCalc) {
+    const v = currGetValue();
+    if (v !== null) calcSetValue(v);
+  } else {
+    const v = calcGetValue();
+    if (v !== null) currSetValue(v);
+  }
+
+  document.getElementById('page-calc').classList.toggle('visible', isCalc);
+  document.getElementById('page-curr').classList.toggle('visible', !isCalc);
+  document.getElementById('tab-calc').classList.toggle('active', isCalc);
+  document.getElementById('tab-curr').classList.toggle('active', !isCalc);
+}
+
+/* ═══════════════════════════════ Init ════════════════════════════════════ */
+buildSelects();
+
+// Enter-Taste im Betragsfeld
+document.getElementById('amount').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doConvert();
+});
+
+// Beim Start direkt umrechnen
+doConvert();
+</script>
+</body>
+</html>

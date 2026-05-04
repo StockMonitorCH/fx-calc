@@ -1,0 +1,15 @@
+[Desktop Entry]
+Name=FX Calc
+Name[de]=FX Calc
+GenericName=Rechner & Währungsrechner
+GenericName[en]=Calculator & Currency Converter
+Comment=Einfacher Rechner mit Währungsumrechnung und Zinsrechner
+Comment[en]=Simple calculator with currency conversion and interest calculator
+Exec=fx-calc
+Icon=fx-calc
+Terminal=false
+Type=Application
+Categories=Finance;Office;Utility;
+Keywords=rechner;währung;kurs;zins;calculator;currency;finance;
+StartupNotify=true
+StartupWMClass=currency_converter
