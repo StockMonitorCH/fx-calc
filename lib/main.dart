@@ -6,9 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:math_expressions/math_expressions.dart';
-import 'package:open_file/open_file.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── App-Einstieg ────────────────────────────────────────────────────────────
@@ -1071,86 +1069,36 @@ class _SavingsPageState extends State<SavingsPage> {
 
 // ─── Update-Dialog ───────────────────────────────────────────────────────────
 
-class _UpdateDialog extends StatefulWidget {
+class _UpdateDialog extends StatelessWidget {
   final String version;
   final String downloadUrl;
   const _UpdateDialog({required this.version, required this.downloadUrl});
-  @override
-  State<_UpdateDialog> createState() => _UpdateDialogState();
-}
-
-class _UpdateDialogState extends State<_UpdateDialog> {
-  bool   _downloading = false;
-  double? _progress;
-  String? _error;
-
-  Future<void> _startUpdate() async {
-    setState(() { _downloading = true; _progress = 0; _error = null; });
-    try {
-      final dir = await getTemporaryDirectory();
-      final path = '${dir.path}/fx_calc_update.apk';
-      final file = File(path);
-
-      final client = http.Client();
-      final response = await client.send(
-        http.Request('GET', Uri.parse(widget.downloadUrl)),
-      );
-      final total = response.contentLength ?? 0;
-      int received = 0;
-
-      final sink = file.openWrite();
-      await for (final chunk in response.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        if (total > 0 && mounted) setState(() => _progress = received / total);
-      }
-      await sink.flush();
-      await sink.close();
-      client.close();
-
-      await OpenFile.open(path, type: 'application/vnd.android.package-archive');
-      if (mounted) Navigator.of(context).pop();
-    } catch (e) {
-      if (mounted) setState(() { _downloading = false; _error = e.toString(); });
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    final pct = _progress != null ? '${((_progress ?? 0) * 100).toStringAsFixed(0)} %' : '…';
     return AlertDialog(
       title: Text(tr('Update verfügbar', 'Update available')),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(tr(
-            'Version ${widget.version} ist verfügbar.\nJetzt herunterladen und installieren?',
-            'Version ${widget.version} is available.\nDownload and install now?',
-          )),
-          if (_downloading) ...[
-            const SizedBox(height: 16),
-            LinearProgressIndicator(value: _progress),
-            const SizedBox(height: 6),
-            Text(pct, style: const TextStyle(fontSize: 12)),
-          ],
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 11)),
-          ],
-        ],
-      ),
+      content: Text(tr(
+        'Version $version ist verfügbar.\n\n'
+        'Auf «Download» tippen → APK wird im Browser heruntergeladen → '
+        'in der Download-Benachrichtigung auf «Öffnen» tippen → Installieren.',
+        'Version $version is available.\n\n'
+        'Tap «Download» → APK downloads in browser → '
+        'tap «Open» in the download notification → Install.',
+      )),
       actions: [
-        if (!_downloading || _error != null)
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(tr('Später', 'Later')),
-          ),
-        if (!_downloading)
-          ElevatedButton(
-            onPressed: _startUpdate,
-            child: Text(tr('Update', 'Update')),
-          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(tr('Später', 'Later')),
+        ),
+        ElevatedButton.icon(
+          icon: const Icon(Icons.download),
+          label: Text(tr('Download', 'Download')),
+          onPressed: () {
+            launchUrl(Uri.parse(downloadUrl), mode: LaunchMode.externalApplication);
+            Navigator.of(context).pop();
+          },
+        ),
       ],
     );
   }
