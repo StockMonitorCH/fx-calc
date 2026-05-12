@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:math_expressions/math_expressions.dart';
+import 'package:open_file/open_file.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── App-Einstieg ────────────────────────────────────────────────────────────
@@ -191,6 +194,54 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onMemCalc(double v)     => setState(() => _memValue = v);
   void _onMemCurr(double v)     => setState(() => _memValue = v);
   void _onCurrencyChanged(String c) => setState(() => _currency = c);
+
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isAndroid) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _checkForUpdate());
+    }
+  }
+
+  Future<void> _checkForUpdate() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final current = info.version;
+      final r = await http.get(
+        Uri.parse('https://api.github.com/repos/StockMonitorCH/fx-calc/releases/latest'),
+        headers: {'Accept': 'application/vnd.github+json'},
+      ).timeout(const Duration(seconds: 8));
+      if (r.statusCode != 200) return;
+      final j = jsonDecode(r.body);
+      final tag = (j['tag_name'] as String).replaceFirst(RegExp(r'^v'), '');
+      if (!_isNewer(tag, current)) return;
+      final assets = j['assets'] as List;
+      final apk = assets.cast<Map<String, dynamic>>().firstWhere(
+        (a) => (a['name'] as String).endsWith('.apk'),
+        orElse: () => {},
+      );
+      if (apk.isEmpty) return;
+      final url = apk['browser_download_url'] as String;
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _UpdateDialog(version: tag, downloadUrl: url),
+      );
+    } catch (_) {}
+  }
+
+  bool _isNewer(String remote, String current) {
+    final r = remote.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+    final c = current.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+    for (int i = 0; i < math.max(r.length, c.length); i++) {
+      final rv = i < r.length ? r[i] : 0;
+      final cv = i < c.length ? c[i] : 0;
+      if (rv > cv) return true;
+      if (rv < cv) return false;
+    }
+    return false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -793,12 +844,13 @@ class _SavingsPageState extends State<SavingsPage> {
     });
   }
 
-  Widget _field(String label, TextEditingController ctrl, String suffix) {
+  Widget _field(String label, TextEditingController ctrl, String suffix,
+      {bool signed = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: TextField(
         controller: ctrl,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        keyboardType: TextInputType.numberWithOptions(decimal: true, signed: signed),
         decoration: InputDecoration(
           labelText: label,
           suffixText: suffix,
@@ -836,7 +888,7 @@ class _SavingsPageState extends State<SavingsPage> {
                 child: Column(
                   children: [
                     _field(tr('Startkapital', 'Initial capital'), _startCtrl, widget.currency),
-                    _field(tr('Einzahlung / Jahr', 'Deposit / year'), _depositCtrl, widget.currency),
+                    _field(tr('Einzahlung/Entnahme / Jahr', 'Deposit/Withdrawal / year'), _depositCtrl, widget.currency, signed: true),
                     _field(tr('Laufzeit', 'Duration'), _yearsCtrl, tr('Jahre', 'years')),
                     _field(tr('Zinssatz', 'Interest rate'), _rateCtrl, '%'),
                   ],
@@ -856,47 +908,65 @@ class _SavingsPageState extends State<SavingsPage> {
                       style: TextStyle(fontSize: 13, color: cs.onPrimaryContainer.withValues(alpha: 0.7)),
                     ),
                     const SizedBox(height: 8),
-                    // Main result
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          tr('Mit Einzahlungen', 'With deposits'),
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          '${_fmt(_endWith)} ${widget.currency}',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: cs.primary,
+                    Builder(builder: (context) {
+                      final depAmt = double.tryParse(_depositCtrl.text.replaceAll(',', '.')) ?? 0;
+                      final yrs = int.tryParse(_yearsCtrl.text) ?? 0;
+                      final totalDep = depAmt * yrs;
+                      final isWithdrawal = depAmt < 0;
+                      return Column(
+                        children: [
+                          // Main result
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                isWithdrawal
+                                    ? tr('Mit Entnahmen', 'With withdrawals')
+                                    : tr('Mit Einzahlungen', 'With deposits'),
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                '${_fmt(_endWith)} ${widget.currency}',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                  color: cs.primary,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 20),
-                    _resultRow(
-                      tr('Nur Zinseszins', 'Only compound interest'),
-                      '${_fmt(_endWithout)} ${widget.currency}',
-                      cs,
-                    ),
-                    _resultRow(
-                      tr('+ Einzahlungen gesamt', '+ Total deposits'),
-                      '+ ${_fmt(_depositCtrl.text.isEmpty ? 0 : (double.tryParse(_depositCtrl.text.replaceAll(',', '.')) ?? 0) * (int.tryParse(_yearsCtrl.text) ?? 0))} ${widget.currency}',
-                      cs,
-                    ),
-                    const Divider(height: 20),
-                    _resultRow(
-                      tr('Eingezahlt total', 'Total paid in'),
-                      '${_fmt(_totalPaid)} ${widget.currency}',
-                      cs,
-                    ),
-                    _resultRow(
-                      tr('Zinsgewinn total', 'Total interest gain'),
-                      '${_fmt(_interestGain)} ${widget.currency}',
-                      cs,
-                      valueColor: _interestGain >= 0 ? Colors.green.shade700 : Colors.red,
-                    ),
+                          const Divider(height: 20),
+                          _resultRow(
+                            tr('Nur Zinseszins', 'Only compound interest'),
+                            '${_fmt(_endWithout)} ${widget.currency}',
+                            cs,
+                          ),
+                          _resultRow(
+                            isWithdrawal
+                                ? tr('− Entnahmen gesamt', '− Total withdrawals')
+                                : tr('+ Einzahlungen gesamt', '+ Total deposits'),
+                            isWithdrawal
+                                ? '− ${_fmt(-totalDep)} ${widget.currency}'
+                                : '+ ${_fmt(totalDep)} ${widget.currency}',
+                            cs,
+                          ),
+                          const Divider(height: 20),
+                          _resultRow(
+                            isWithdrawal
+                                ? tr('Entnommen total', 'Total withdrawn')
+                                : tr('Eingezahlt total', 'Total paid in'),
+                            '${_fmt(_totalPaid)} ${widget.currency}',
+                            cs,
+                          ),
+                          _resultRow(
+                            tr('Zinsgewinn total', 'Total interest gain'),
+                            '${_fmt(_interestGain)} ${widget.currency}',
+                            cs,
+                            valueColor: _interestGain >= 0 ? Colors.green.shade700 : Colors.red,
+                          ),
+                        ],
+                      );
+                    }),
                   ],
                 ),
               ),
@@ -917,6 +987,93 @@ class _SavingsPageState extends State<SavingsPage> {
           Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: valueColor ?? cs.onPrimaryContainer)),
         ],
       ),
+    );
+  }
+}
+
+// ─── Update-Dialog ───────────────────────────────────────────────────────────
+
+class _UpdateDialog extends StatefulWidget {
+  final String version;
+  final String downloadUrl;
+  const _UpdateDialog({required this.version, required this.downloadUrl});
+  @override
+  State<_UpdateDialog> createState() => _UpdateDialogState();
+}
+
+class _UpdateDialogState extends State<_UpdateDialog> {
+  bool   _downloading = false;
+  double? _progress;
+  String? _error;
+
+  Future<void> _startUpdate() async {
+    setState(() { _downloading = true; _progress = 0; _error = null; });
+    try {
+      final dir = await getTemporaryDirectory();
+      final path = '${dir.path}/fx_calc_update.apk';
+      final file = File(path);
+
+      final client = http.Client();
+      final response = await client.send(
+        http.Request('GET', Uri.parse(widget.downloadUrl)),
+      );
+      final total = response.contentLength ?? 0;
+      int received = 0;
+
+      final sink = file.openWrite();
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0 && mounted) setState(() => _progress = received / total);
+      }
+      await sink.flush();
+      await sink.close();
+      client.close();
+
+      await OpenFile.open(path, type: 'application/vnd.android.package-archive');
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) setState(() { _downloading = false; _error = e.toString(); });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = _progress != null ? '${((_progress ?? 0) * 100).toStringAsFixed(0)} %' : '…';
+    return AlertDialog(
+      title: Text(tr('Update verfügbar', 'Update available')),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(tr(
+            'Version ${widget.version} ist verfügbar.\nJetzt herunterladen und installieren?',
+            'Version ${widget.version} is available.\nDownload and install now?',
+          )),
+          if (_downloading) ...[
+            const SizedBox(height: 16),
+            LinearProgressIndicator(value: _progress),
+            const SizedBox(height: 6),
+            Text(pct, style: const TextStyle(fontSize: 12)),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 11)),
+          ],
+        ],
+      ),
+      actions: [
+        if (!_downloading || _error != null)
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(tr('Später', 'Later')),
+          ),
+        if (!_downloading)
+          ElevatedButton(
+            onPressed: _startUpdate,
+            child: Text(tr('Update', 'Update')),
+          ),
+      ],
     );
   }
 }
@@ -950,12 +1107,18 @@ class InfoPage extends StatelessWidget {
                     Text(
                       tr(
                         'FX Calc ist Teil von Stock Monitor – '
-                        'der kostenlosen Portfolio-App für Desktop & Smartphone.',
+                        'der kostenlosen Portfolio-App für Desktop.',
                         'FX Calc is part of Stock Monitor – '
-                        'the free portfolio app for desktop & smartphone.',
+                        'the free portfolio app for desktop.',
                       ),
                       textAlign: TextAlign.center,
                       style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      tr('Kursdaten: Yahoo Finance', 'Data source: Yahoo Finance'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12),
                     ),
                     const SizedBox(height: 12),
                     ElevatedButton.icon(
