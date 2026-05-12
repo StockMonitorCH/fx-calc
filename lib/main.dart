@@ -212,15 +212,15 @@ class _HomeScreenState extends State<HomeScreen> {
         headers: {'Accept': 'application/vnd.github+json'},
       ).timeout(const Duration(seconds: 8));
       if (r.statusCode != 200) return;
-      final j = jsonDecode(r.body);
+      final j = jsonDecode(r.body) as Map<String, dynamic>;
       final tag = (j['tag_name'] as String).replaceFirst(RegExp(r'^v'), '');
       if (!_isNewer(tag, current)) return;
-      final assets = j['assets'] as List;
-      final apk = assets.cast<Map<String, dynamic>>().firstWhere(
-        (a) => (a['name'] as String).endsWith('.apk'),
-        orElse: () => {},
-      );
-      if (apk.isEmpty) return;
+      final assets = (j['assets'] as List).cast<Map<String, dynamic>>();
+      Map<String, dynamic>? apk;
+      for (final a in assets) {
+        if ((a['name'] as String).endsWith('.apk')) { apk = a; break; }
+      }
+      if (apk == null) return;
       final url = apk['browser_download_url'] as String;
       if (!mounted) return;
       showDialog(
@@ -228,7 +228,9 @@ class _HomeScreenState extends State<HomeScreen> {
         barrierDismissible: false,
         builder: (_) => _UpdateDialog(version: tag, downloadUrl: url),
       );
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Update-Check Fehler: $e');
+    }
   }
 
   bool _isNewer(String remote, String current) {
