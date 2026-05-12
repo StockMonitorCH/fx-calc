@@ -199,11 +199,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     if (Platform.isAndroid) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _checkForUpdate());
+      Future.delayed(const Duration(seconds: 3), _checkForUpdate);
     }
   }
 
-  Future<void> _checkForUpdate() async {
+  Future<void> _checkForUpdate({bool showUpToDate = false}) async {
     try {
       final info = await PackageInfo.fromPlatform();
       final current = info.version;
@@ -211,10 +211,17 @@ class _HomeScreenState extends State<HomeScreen> {
         Uri.parse('https://api.github.com/repos/StockMonitorCH/fx-calc/releases/latest'),
         headers: {'Accept': 'application/vnd.github+json'},
       ).timeout(const Duration(seconds: 8));
-      if (r.statusCode != 200) return;
+      if (!mounted) return;
+      if (r.statusCode != 200) {
+        if (showUpToDate) _showSnack(tr('Fehler: HTTP ${r.statusCode}', 'Error: HTTP ${r.statusCode}'));
+        return;
+      }
       final j = jsonDecode(r.body) as Map<String, dynamic>;
       final tag = (j['tag_name'] as String).replaceFirst(RegExp(r'^v'), '');
-      if (!_isNewer(tag, current)) return;
+      if (!_isNewer(tag, current)) {
+        if (showUpToDate) _showSnack(tr('App ist aktuell (v$current)', 'App is up to date (v$current)'));
+        return;
+      }
       final assets = (j['assets'] as List).cast<Map<String, dynamic>>();
       Map<String, dynamic>? apk;
       for (final a in assets) {
@@ -230,7 +237,14 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     } catch (e) {
       debugPrint('Update-Check Fehler: $e');
+      if (mounted && showUpToDate) _showSnack(tr('Keine Verbindung', 'No connection'));
     }
+  }
+
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
+    );
   }
 
   bool _isNewer(String remote, String current) {
@@ -251,7 +265,7 @@ class _HomeScreenState extends State<HomeScreen> {
       CalculatorPage(initValue: _memValue, onResult: _onMemCalc),
       CurrencyPage(initAmount: _memValue > 0 ? _memValue : 1, onResult: _onMemCurr, onCurrencyChanged: _onCurrencyChanged),
       SavingsPage(currency: _currency),
-      const InfoPage(),
+      InfoPage(onCheckUpdate: () => _checkForUpdate(showUpToDate: true)),
     ];
     return Scaffold(
       body: pages[_idx],
@@ -1140,7 +1154,8 @@ class _UpdateDialogState extends State<_UpdateDialog> {
 // ─── Info / Über ─────────────────────────────────────────────────────────────
 
 class InfoPage extends StatefulWidget {
-  const InfoPage({super.key});
+  final VoidCallback? onCheckUpdate;
+  const InfoPage({super.key, this.onCheckUpdate});
   @override
   State<InfoPage> createState() => _InfoPageState();
 }
@@ -1202,6 +1217,14 @@ class _InfoPageState extends State<InfoPage> {
                         mode: LaunchMode.externalApplication,
                       ),
                     ),
+                    if (widget.onCheckUpdate != null) ...[
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.system_update_outlined),
+                        label: Text(tr('Nach Updates suchen', 'Check for updates')),
+                        onPressed: widget.onCheckUpdate,
+                      ),
+                    ],
                   ],
                 ),
               ),
