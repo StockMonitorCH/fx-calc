@@ -797,10 +797,12 @@ class _SavingsPageState extends State<SavingsPage> {
   final _yearsCtrl    = TextEditingController(text: '20');
   final _rateCtrl     = TextEditingController(text: '5.0');
 
-  double _endWithout  = 0;
-  double _endWith     = 0;
-  double _totalPaid   = 0;
-  double _interestGain = 0;
+  bool   _isWithdrawal   = false;
+  double _endWithout     = 0;
+  double _endWith        = 0;
+  double _totalPaid      = 0;
+  double _interestGain   = 0;
+  double? _yearsToDepletion;
 
   @override
   void initState() {
@@ -821,13 +823,27 @@ class _SavingsPageState extends State<SavingsPage> {
     super.dispose();
   }
 
-  void _calculate() {
-    final start   = double.tryParse(_startCtrl.text.replaceAll(',', '.'))   ?? 0;
-    final deposit = double.tryParse(_depositCtrl.text.replaceAll(',', '.')) ?? 0;
-    final years   = int.tryParse(_yearsCtrl.text)   ?? 0;
-    final rate    = (double.tryParse(_rateCtrl.text.replaceAll(',', '.')) ?? 0) / 100;
+  double? _calcYearsToDepletion(double start, double withdrawalPerYear, double rate) {
+    if (withdrawalPerYear <= 0 || start <= 0) return null;
+    if (rate <= 0) return start / withdrawalPerYear;
+    if (rate * start >= withdrawalPerYear) return null;
+    final w = -withdrawalPerYear;
+    final ratio = w / (rate * start + w);
+    if (ratio <= 0) return null;
+    return math.log(ratio) / math.log(1 + rate);
+  }
 
-    if (years <= 0) { setState(() { _endWithout = 0; _endWith = 0; _totalPaid = 0; _interestGain = 0; }); return; }
+  void _calculate() {
+    final start    = double.tryParse(_startCtrl.text.replaceAll(',', '.'))   ?? 0;
+    final depAmt   = double.tryParse(_depositCtrl.text.replaceAll(',', '.')) ?? 0;
+    final deposit  = depAmt * (_isWithdrawal ? -1 : 1);
+    final years    = int.tryParse(_yearsCtrl.text)   ?? 0;
+    final rate     = (double.tryParse(_rateCtrl.text.replaceAll(',', '.')) ?? 0) / 100;
+
+    if (years <= 0) {
+      setState(() { _endWithout = 0; _endWith = 0; _totalPaid = 0; _interestGain = 0; _yearsToDepletion = null; });
+      return;
+    }
 
     final factor = math.pow(1 + rate, years).toDouble();
     final without = start * factor;
@@ -837,20 +853,22 @@ class _SavingsPageState extends State<SavingsPage> {
     final paid = start + deposit * years;
 
     setState(() {
-      _endWithout   = without;
-      _endWith      = withDep;
-      _totalPaid    = paid;
-      _interestGain = withDep - paid;
+      _endWithout       = without;
+      _endWith          = withDep;
+      _totalPaid        = paid;
+      _interestGain     = withDep - paid;
+      _yearsToDepletion = _isWithdrawal
+          ? _calcYearsToDepletion(start, depAmt, rate)
+          : null;
     });
   }
 
-  Widget _field(String label, TextEditingController ctrl, String suffix,
-      {bool signed = false}) {
+  Widget _field(String label, TextEditingController ctrl, String suffix) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: TextField(
         controller: ctrl,
-        keyboardType: TextInputType.numberWithOptions(decimal: true, signed: signed),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
         decoration: InputDecoration(
           labelText: label,
           suffixText: suffix,
@@ -859,6 +877,16 @@ class _SavingsPageState extends State<SavingsPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildDepletion(double totalYears, ColorScheme cs) {
+    final y = totalYears.floor();
+    final m = ((totalYears - y) * 12).round();
+    final label = m > 0
+        ? tr('~$y J. $m M.', '~$y yr $m mo')
+        : tr('~$y Jahre', '~$y years');
+    return Text(label,
+        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: cs.error));
   }
 
   String _fmt(double v) {
@@ -888,7 +916,33 @@ class _SavingsPageState extends State<SavingsPage> {
                 child: Column(
                   children: [
                     _field(tr('Startkapital', 'Initial capital'), _startCtrl, widget.currency),
-                    _field(tr('Einzahlung/Entnahme / Jahr', 'Deposit/Withdrawal / year'), _depositCtrl, widget.currency, signed: true),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SegmentedButton<bool>(
+                            segments: [
+                              ButtonSegment(
+                                value: false,
+                                label: Text(tr('Einzahlung', 'Deposit')),
+                                icon: const Icon(Icons.add, size: 16),
+                              ),
+                              ButtonSegment(
+                                value: true,
+                                label: Text(tr('Entnahme', 'Withdrawal')),
+                                icon: const Icon(Icons.remove, size: 16),
+                              ),
+                            ],
+                            selected: {_isWithdrawal},
+                            onSelectionChanged: (s) =>
+                                setState(() { _isWithdrawal = s.first; _calculate(); }),
+                          ),
+                          const SizedBox(height: 6),
+                          _field(tr('Betrag / Jahr', 'Amount / year'), _depositCtrl, widget.currency),
+                        ],
+                      ),
+                    ),
                     _field(tr('Laufzeit', 'Duration'), _yearsCtrl, tr('Jahre', 'years')),
                     _field(tr('Zinssatz', 'Interest rate'), _rateCtrl, '%'),
                   ],
@@ -911,8 +965,7 @@ class _SavingsPageState extends State<SavingsPage> {
                     Builder(builder: (context) {
                       final depAmt = double.tryParse(_depositCtrl.text.replaceAll(',', '.')) ?? 0;
                       final yrs = int.tryParse(_yearsCtrl.text) ?? 0;
-                      final totalDep = depAmt * yrs;
-                      final isWithdrawal = depAmt < 0;
+                      final depleted = _isWithdrawal && _endWith <= 0 && _yearsToDepletion != null;
                       return Column(
                         children: [
                           // Main result
@@ -920,19 +973,23 @@ class _SavingsPageState extends State<SavingsPage> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                isWithdrawal
-                                    ? tr('Mit Entnahmen', 'With withdrawals')
-                                    : tr('Mit Einzahlungen', 'With deposits'),
+                                depleted
+                                    ? tr('Aufgebraucht nach', 'Depleted after')
+                                    : _isWithdrawal
+                                        ? tr('Mit Entnahmen', 'With withdrawals')
+                                        : tr('Mit Einzahlungen', 'With deposits'),
                                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                               ),
-                              Text(
-                                '${_fmt(_endWith)} ${widget.currency}',
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  color: cs.primary,
-                                ),
-                              ),
+                              depleted
+                                  ? _buildDepletion(_yearsToDepletion!, cs)
+                                  : Text(
+                                      '${_fmt(_endWith)} ${widget.currency}',
+                                      style: TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.bold,
+                                        color: cs.primary,
+                                      ),
+                                    ),
                             ],
                           ),
                           const Divider(height: 20),
@@ -942,17 +999,17 @@ class _SavingsPageState extends State<SavingsPage> {
                             cs,
                           ),
                           _resultRow(
-                            isWithdrawal
+                            _isWithdrawal
                                 ? tr('− Entnahmen gesamt', '− Total withdrawals')
                                 : tr('+ Einzahlungen gesamt', '+ Total deposits'),
-                            isWithdrawal
-                                ? '− ${_fmt(-totalDep)} ${widget.currency}'
-                                : '+ ${_fmt(totalDep)} ${widget.currency}',
+                            _isWithdrawal
+                                ? '− ${_fmt(depAmt * yrs)} ${widget.currency}'
+                                : '+ ${_fmt(depAmt * yrs)} ${widget.currency}',
                             cs,
                           ),
                           const Divider(height: 20),
                           _resultRow(
-                            isWithdrawal
+                            _isWithdrawal
                                 ? tr('Entnommen total', 'Total withdrawn')
                                 : tr('Eingezahlt total', 'Total paid in'),
                             '${_fmt(_totalPaid)} ${widget.currency}',
