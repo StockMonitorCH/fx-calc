@@ -39,8 +39,8 @@ String fmtNum(double v, {int dec = 4}) {
 
 // Wie viele Dezimalstellen braucht ein Ergebnis wirklich?
 // Rundet auf 10 signifikante Stellen (eliminiert Fließkomma-Rauschen wie 0.30000000004)
-int _neededDecimals(double v, {int max = 10}) {
-  final rounded = double.parse(v.toStringAsPrecision(10));
+int _neededDecimals(double v, {int max = 12}) {
+  final rounded = double.parse(v.toStringAsPrecision(12));
   if (rounded == rounded.truncateToDouble()) return 0;
   final s = rounded.toStringAsFixed(max);
   final dot = s.indexOf('.');
@@ -416,6 +416,11 @@ class _CalculatorPageState extends State<CalculatorPage> {
         '×': ['*', '×'], '÷': ['/', '÷'], '%': ['/100', '%'],
         '＋': ['+', '＋'], '−': ['-', '−']};
       if (map.containsKey(t)) {
+        const binOps = {'×', '÷', '＋', '−'};
+        if (binOps.contains(t) && _disp.isNotEmpty && binOps.contains(_disp[_disp.length - 1])) {
+          _expr = _expr.substring(0, _expr.length - 1);
+          _disp = _disp.substring(0, _disp.length - 1);
+        }
         _expr += map[t]![0]; _disp += map[t]![1];
       } else if (t == '±') {
         if (_expr.isNotEmpty) { _expr = '-($_expr)'; _disp = '-($_disp)'; }
@@ -1176,17 +1181,17 @@ class _InfoPageState extends State<InfoPage> {
     final cs = Theme.of(context).colorScheme;
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
         child: Column(
           children: [
             Text('FX Calc',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: cs.primary)),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               tr('Rechner & Währungsrechner', 'Calculator & Currency Converter'),
               style: TextStyle(fontSize: 14, color: cs.onSurface.withOpacity(0.7)),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -1229,10 +1234,10 @@ class _InfoPageState extends State<InfoPage> {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             Card(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                 child: Column(
                   children: [
                     Text(
