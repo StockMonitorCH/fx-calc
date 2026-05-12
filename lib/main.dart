@@ -1139,8 +1139,22 @@ class _UpdateDialogState extends State<_UpdateDialog> {
 
 // ─── Info / Über ─────────────────────────────────────────────────────────────
 
-class InfoPage extends StatelessWidget {
+class InfoPage extends StatefulWidget {
   const InfoPage({super.key});
+  @override
+  State<InfoPage> createState() => _InfoPageState();
+}
+
+class _InfoPageState extends State<InfoPage> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((i) {
+      if (mounted) setState(() => _version = 'v${i.version}');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1244,7 +1258,7 @@ class InfoPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            Text('v1.0.0', style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.4))),
+            Text(_version, style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.4))),
           ],
         ),
       ),
