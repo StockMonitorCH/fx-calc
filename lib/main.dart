@@ -12,7 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 // ─── Datenschutz ─────────────────────────────────────────────────────────────
 
-const String kPrivacyUrl = 'https://www.stock-monitor.ch/privacy';
+const String kPrivacyUrl = 'https://stockmonitorch.github.io/fx-calc/privacy.html';
 
 // ─── App-Einstieg ────────────────────────────────────────────────────────────
 
