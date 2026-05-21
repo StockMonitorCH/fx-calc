@@ -7,7 +7,12 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:math_expressions/math_expressions.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+// ─── Datenschutz ─────────────────────────────────────────────────────────────
+
+const String kPrivacyUrl = 'https://www.stock-monitor.ch/privacy';
 
 // ─── App-Einstieg ────────────────────────────────────────────────────────────
 
@@ -47,6 +52,27 @@ int _neededDecimals(double v, {int max = 12}) {
   int n = dec.length;
   while (n > 0 && dec[n - 1] == '0') n--;
   return n;
+}
+
+// ─── Tausendertrennzeichen für Eingabe ───────────────────────────────────────
+
+String _thousandFmt(String digits) {
+  final sep = _isDE() ? "'" : ',';
+  final buf = StringBuffer();
+  final offset = digits.length % 3;
+  for (int i = 0; i < digits.length; i++) {
+    if (i > 0 && (i - offset) % 3 == 0) buf.write(sep);
+    buf.write(digits[i]);
+  }
+  return buf.toString();
+}
+
+// Fügt Tausendertrennzeichen in einen Display-String ein (nur Ganzzahl-Teile ≥4 Stellen)
+String _addThousands(String s) {
+  return s.replaceAllMapped(RegExp(r'\d{4,}'), (m) {
+    if (m.start > 0 && s[m.start - 1] == '.') return m.group(0)!;
+    return _thousandFmt(m.group(0)!);
+  });
 }
 
 // ─── Twint QR ────────────────────────────────────────────────────────────────
@@ -196,9 +222,21 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkPrivacyConsent());
     if (Platform.isAndroid) {
       Future.delayed(const Duration(seconds: 3), _checkForUpdate);
     }
+  }
+
+  Future<void> _checkPrivacyConsent() async {
+    final prefs = await SharedPreferences.getInstance();
+    final accepted = prefs.getBool('privacy_accepted') ?? false;
+    if (accepted || !mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _PrivacyConsentDialog(),
+    );
   }
 
   Future<void> _checkForUpdate({bool showUpToDate = false}) async {
@@ -303,12 +341,14 @@ class CalcDisplay extends StatelessWidget {
   final String main;
   final String sub;
   final String history;
+  final bool pendingOp;
 
   const CalcDisplay({
     super.key,
     required this.main,
     this.sub = '',
     this.history = '',
+    this.pendingOp = false,
   });
 
   @override
@@ -317,6 +357,9 @@ class CalcDisplay extends StatelessWidget {
     final fs = main.length <= 9 ? 36.0
         : main.length <= 14 ? 26.0
         : main.length <= 20 ? 20.0 : 15.0;
+
+    final mainStyle = TextStyle(
+        fontSize: fs, fontWeight: FontWeight.bold, color: cs.primary);
 
     return SizedBox(
       height: 130,
@@ -333,13 +376,21 @@ class CalcDisplay extends StatelessWidget {
                   style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
                   textAlign: TextAlign.right),
             const Spacer(),
-            Text(main,
-                style: TextStyle(
-                    fontSize: fs,
-                    fontWeight: FontWeight.bold,
-                    color: cs.primary),
+            if (pendingOp && main.isNotEmpty)
+              RichText(
                 textAlign: TextAlign.right,
-                maxLines: 2),
+                maxLines: 2,
+                text: TextSpan(
+                  style: mainStyle,
+                  children: [
+                    TextSpan(text: main.substring(0, main.length - 1)),
+                    TextSpan(text: main[main.length - 1],
+                        style: TextStyle(color: cs.error)),
+                  ],
+                ),
+              )
+            else
+              Text(main, style: mainStyle, textAlign: TextAlign.right, maxLines: 2),
             if (sub.isNotEmpty)
               Text(sub,
                   style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.6)),
@@ -367,6 +418,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
   String _hist     = '';
   String _histFull = '';   // vollständige Rechnung z.B. "1234 × 5.6 = 6'910.4"
   bool   _eval     = false;
+  bool   _pendingOp = false; // = nach unvollständiger Eingabe (z.B. 5+= )
 
   @override
   void initState() {
@@ -384,11 +436,13 @@ class _CalculatorPageState extends State<CalculatorPage> {
   String get _displayText {
     final d = _disp.isEmpty ? '0' : _disp;
     final open = '('.allMatches(d).length - ')'.allMatches(d).length;
-    return open > 0 ? d + ')' * open : d;
+    final s = open > 0 ? d + ')' * open : d;
+    return _addThousands(s);
   }
 
   void _btn(String t) {
     setState(() {
+      if (t != '=') _pendingOp = false;
       if (t == 'CE') {
         _expr = ''; _disp = ''; _hist = ''; _histFull = ''; _eval = false; return;
       }
@@ -405,7 +459,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
       }
       if (t == '=') { _evaluate(); return; }
 
-      if (_eval && !['＋','−','×','÷','%','²'].any((op) => t == op)) {
+      if (_eval && !['＋','−','×','÷','%','x²'].any((op) => t == op)) {
         _expr = ''; _disp = '';
       }
       _eval = false;
@@ -442,6 +496,13 @@ class _CalculatorPageState extends State<CalculatorPage> {
 
   void _evaluate() {
     if (_expr.isEmpty) return;
+
+    // Ausdruck endet mit binärem Operator → Operator rot anzeigen, warten
+    if (RegExp(r'[+\-*/]$').hasMatch(_expr)) {
+      setState(() => _pendingOp = true);
+      return;
+    }
+
     final open = '('.allMatches(_expr).length - ')'.allMatches(_expr).length;
     final evalStr = _expr + ')' * (open > 0 ? open : 0);
     final dispStr = _disp + ')' * (open > 0 ? open : 0);
@@ -458,12 +519,13 @@ class _CalculatorPageState extends State<CalculatorPage> {
         _disp = rs;
         _expr = result.toString();
         _eval = true;
+        _pendingOp = false;
         widget.onResult(result);
       });
     } catch (_) {
       setState(() {
         _disp = tr('Fehler', 'Error');
-        _expr = ''; _eval = false;
+        _expr = ''; _eval = false; _pendingOp = false;
       });
     }
   }
@@ -503,7 +565,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
     return SafeArea(
       child: Column(
         children: [
-          CalcDisplay(main: _displayText),
+          CalcDisplay(main: _displayText, pendingOp: _pendingOp),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(6, 8, 6, 4),
@@ -1067,6 +1129,42 @@ class _SavingsPageState extends State<SavingsPage> {
   }
 }
 
+// ─── Privacy-Consent-Dialog ──────────────────────────────────────────────────
+
+class _PrivacyConsentDialog extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(tr('Datenschutz', 'Privacy Policy')),
+      content: Text(tr(
+        'FX Calc speichert keine persönlichen Daten. Wechselkurse werden live '
+        'von Yahoo Finance abgerufen.\n\n'
+        'Mit «Akzeptieren» stimmst du unserer Datenschutzerklärung zu.',
+        'FX Calc does not store personal data. Exchange rates are fetched live '
+        'from Yahoo Finance.\n\n'
+        'By tapping "Accept" you agree to our privacy policy.',
+      )),
+      actions: [
+        TextButton(
+          onPressed: () => launchUrl(
+            Uri.parse(kPrivacyUrl),
+            mode: LaunchMode.externalApplication,
+          ),
+          child: Text(tr('Datenschutzerklärung', 'Privacy Policy')),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('privacy_accepted', true);
+            if (context.mounted) Navigator.of(context).pop();
+          },
+          child: Text(tr('Akzeptieren', 'Accept')),
+        ),
+      ],
+    );
+  }
+}
+
 // ─── Update-Dialog ───────────────────────────────────────────────────────────
 
 class _UpdateDialog extends StatelessWidget {
@@ -1234,6 +1332,16 @@ class _InfoPageState extends State<InfoPage> {
               ),
             ),
             const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => launchUrl(
+                Uri.parse(kPrivacyUrl),
+                mode: LaunchMode.externalApplication,
+              ),
+              child: Text(
+                tr('Datenschutzerklärung', 'Privacy Policy'),
+                style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.5)),
+              ),
+            ),
             Text(_version, style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.4))),
           ],
         ),
