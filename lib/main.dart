@@ -1168,10 +1168,10 @@ class _PrivacyConsentDialog extends StatelessWidget {
       content: Text(tr(
         'FX Calc speichert keine persönlichen Daten. Wechselkurse werden live '
         'von Yahoo Finance abgerufen.\n\n'
-        'Mit «Akzeptieren» stimmst du unserer Datenschutzerklärung zu.',
+        'Bitte stimme unserer Datenschutzerklärung zu, um die App zu nutzen.',
         'FX Calc does not store personal data. Exchange rates are fetched live '
         'from Yahoo Finance.\n\n'
-        'By tapping "Accept" you agree to our privacy policy.',
+        'Please accept our privacy policy to use the app.',
       )),
       actions: [
         TextButton(
@@ -1180,6 +1180,11 @@ class _PrivacyConsentDialog extends StatelessWidget {
             mode: LaunchMode.externalApplication,
           ),
           child: Text(tr('Datenschutzerklärung', 'Privacy Policy')),
+        ),
+        TextButton(
+          onPressed: () => SystemNavigator.pop(),
+          child: Text(tr('Ablehnen', 'Decline'),
+              style: TextStyle(color: Colors.grey)),
         ),
         ElevatedButton(
           onPressed: () async {
