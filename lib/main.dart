@@ -511,14 +511,13 @@ class _CalculatorPageState extends State<CalculatorPage> {
       final exp = parser.parse(evalStr);
       final ctx = ContextModel();
       final result = exp.evaluate(EvaluationType.REAL, ctx) as double;
-      if (result.isInfinite) {
+      if (!result.isFinite) {
         setState(() {
           _disp = tr('÷ 0 nicht möglich', '÷ 0 not possible');
           _expr = ''; _eval = false; _pendingOp = false;
         });
         return;
       }
-      if (!result.isFinite) throw Exception();
       setState(() {
         _hist = '$dispStr =';
         final rs = fmtNum(result, dec: _neededDecimals(result));
