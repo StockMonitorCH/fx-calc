@@ -511,6 +511,13 @@ class _CalculatorPageState extends State<CalculatorPage> {
       final exp = parser.parse(evalStr);
       final ctx = ContextModel();
       final result = exp.evaluate(EvaluationType.REAL, ctx) as double;
+      if (result.isInfinite) {
+        setState(() {
+          _disp = tr('÷ 0 nicht möglich', '÷ 0 not possible');
+          _expr = ''; _eval = false; _pendingOp = false;
+        });
+        return;
+      }
       if (!result.isFinite) throw Exception();
       setState(() {
         _hist = '$dispStr =';
@@ -873,10 +880,10 @@ class SavingsPage extends StatefulWidget {
 }
 
 class _SavingsPageState extends State<SavingsPage> {
-  final _startCtrl    = TextEditingController(text: '10000');
-  final _depositCtrl  = TextEditingController(text: '1200');
-  final _yearsCtrl    = TextEditingController(text: '20');
-  final _rateCtrl     = TextEditingController(text: '5.0');
+  final _startCtrl    = TextEditingController();
+  final _depositCtrl  = TextEditingController();
+  final _yearsCtrl    = TextEditingController();
+  final _rateCtrl     = TextEditingController();
 
   bool   _isWithdrawal   = false;
   double _endWithout     = 0;
@@ -888,12 +895,34 @@ class _SavingsPageState extends State<SavingsPage> {
   @override
   void initState() {
     super.initState();
-    _startCtrl.addListener(_calculate);
-    _depositCtrl.addListener(_calculate);
-    _yearsCtrl.addListener(_calculate);
-    _rateCtrl.addListener(_calculate);
-    _calculate();
+    _loadPrefs().then((_) {
+      _startCtrl.addListener(_onChanged);
+      _depositCtrl.addListener(_onChanged);
+      _yearsCtrl.addListener(_onChanged);
+      _rateCtrl.addListener(_onChanged);
+      _calculate();
+    });
   }
+
+  Future<void> _loadPrefs() async {
+    final p = await SharedPreferences.getInstance();
+    _startCtrl.text   = p.getString('savings_start')    ?? '10000';
+    _depositCtrl.text = p.getString('savings_deposit')  ?? '1200';
+    _yearsCtrl.text   = p.getString('savings_years')    ?? '20';
+    _rateCtrl.text    = p.getString('savings_rate')     ?? '5.0';
+    if (mounted) setState(() => _isWithdrawal = p.getBool('savings_withdrawal') ?? false);
+  }
+
+  Future<void> _savePrefs() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('savings_start',      _startCtrl.text);
+    await p.setString('savings_deposit',    _depositCtrl.text);
+    await p.setString('savings_years',      _yearsCtrl.text);
+    await p.setString('savings_rate',       _rateCtrl.text);
+    await p.setBool('savings_withdrawal',   _isWithdrawal);
+  }
+
+  void _onChanged() { _savePrefs(); _calculate(); }
 
   @override
   void dispose() {
@@ -1017,7 +1046,7 @@ class _SavingsPageState extends State<SavingsPage> {
                             ],
                             selected: {_isWithdrawal},
                             onSelectionChanged: (s) =>
-                                setState(() { _isWithdrawal = s.first; _calculate(); }),
+                                setState(() { _isWithdrawal = s.first; _savePrefs(); _calculate(); }),
                           ),
                           const SizedBox(height: 6),
                           _field(tr('Betrag / Jahr', 'Amount / year'), _depositCtrl, widget.currency),
