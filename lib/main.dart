@@ -97,10 +97,10 @@ const Map<String,String> kCrypto = {
 };
 
 const Map<String,String> kPrecious = {
-  'XAU (Gold/oz)':'XAUUSD=X',
-  'XAG (Silber/oz)':'XAGUSD=X',
-  'XPT (Platin/oz)':'XPTUSD=X',
-  'XPD (Palladium/oz)':'XPDUSD=X',
+  'XAU (Gold/oz)':'GC=F',
+  'XAG (Silber/oz)':'SI=F',
+  'XPT (Platin/oz)':'PL=F',
+  'XPD (Palladium/oz)':'PA=F',
   'XCU (Kupfer/lb)':'HG=F',
 };
 
