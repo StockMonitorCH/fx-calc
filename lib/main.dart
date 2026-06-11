@@ -41,17 +41,18 @@ String fmtNum(double v, {int dec = 4}) {
 }
 
 // Wie viele Dezimalstellen braucht ein Ergebnis wirklich?
-// Rundet auf 10 signifikante Stellen (eliminiert Fließkomma-Rauschen wie 0.30000000004)
-int _neededDecimals(double v, {int max = 12}) {
-  final rounded = double.parse(v.toStringAsPrecision(12));
-  if (rounded == rounded.truncateToDouble()) return 0;
-  final s = rounded.toStringAsFixed(max);
+// Nutzt toStringAsPrecision(10) direkt – ohne Double-Roundtrip, der neues Rauschen einführt.
+int _neededDecimals(double v, {int max = 8}) {
+  if (v == v.truncateToDouble()) return 0;
+  final s = v.toStringAsPrecision(10);
+  // Wissenschaftliche Notation (sehr grosse/kleine Zahlen)
+  if (s.contains('e') || s.contains('E')) return max;
   final dot = s.indexOf('.');
   if (dot < 0) return 0;
   final dec = s.substring(dot + 1);
   int n = dec.length;
   while (n > 0 && dec[n - 1] == '0') n--;
-  return n;
+  return math.min(n, max);
 }
 
 // ─── Tausendertrennzeichen für Eingabe ───────────────────────────────────────
