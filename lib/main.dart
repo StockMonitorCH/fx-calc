@@ -337,7 +337,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
 // ─── Gemeinsames Display-Widget ───────────────────────────────────────────────
 
-class CalcDisplay extends StatelessWidget {
+class CalcDisplay extends StatefulWidget {
   final String main;
   final String sub;
   final String history;
@@ -352,12 +352,38 @@ class CalcDisplay extends StatelessWidget {
   });
 
   @override
+  State<CalcDisplay> createState() => _CalcDisplayState();
+}
+
+class _CalcDisplayState extends State<CalcDisplay> {
+  final _scrollCtrl = ScrollController();
+
+  @override
+  void didUpdateWidget(CalcDisplay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.main != oldWidget.main) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollCtrl.hasClients) {
+          _scrollCtrl.animateTo(
+            _scrollCtrl.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 100),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final fs = main.length <= 9 ? 36.0
-        : main.length <= 14 ? 26.0
-        : main.length <= 20 ? 20.0 : 15.0;
-
+    final fs = widget.main.length <= 14 ? 36.0 : 26.0;
     final mainStyle = TextStyle(
         fontSize: fs, fontWeight: FontWeight.bold, color: cs.primary);
 
@@ -371,28 +397,38 @@ class CalcDisplay extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            if (history.isNotEmpty)
-              Text(history,
+            if (widget.history.isNotEmpty)
+              Text(widget.history,
                   style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
                   textAlign: TextAlign.right),
             const Spacer(),
-            if (pendingOp && main.isNotEmpty)
-              RichText(
-                textAlign: TextAlign.right,
-                maxLines: 2,
-                text: TextSpan(
-                  style: mainStyle,
-                  children: [
-                    TextSpan(text: main.substring(0, main.length - 1)),
-                    TextSpan(text: main[main.length - 1],
-                        style: TextStyle(color: cs.error)),
-                  ],
+            LayoutBuilder(builder: (context, constraints) {
+              return SingleChildScrollView(
+                controller: _scrollCtrl,
+                scrollDirection: Axis.horizontal,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  child: widget.pendingOp && widget.main.isNotEmpty
+                      ? RichText(
+                          textAlign: TextAlign.right,
+                          maxLines: 1,
+                          text: TextSpan(
+                            style: mainStyle,
+                            children: [
+                              TextSpan(text: widget.main.substring(0, widget.main.length - 1)),
+                              TextSpan(
+                                  text: widget.main[widget.main.length - 1],
+                                  style: TextStyle(color: cs.error)),
+                            ],
+                          ),
+                        )
+                      : Text(widget.main, style: mainStyle,
+                          textAlign: TextAlign.right, maxLines: 1),
                 ),
-              )
-            else
-              Text(main, style: mainStyle, textAlign: TextAlign.right, maxLines: 2),
-            if (sub.isNotEmpty)
-              Text(sub,
+              );
+            }),
+            if (widget.sub.isNotEmpty)
+              Text(widget.sub,
                   style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.6)),
                   textAlign: TextAlign.right),
           ],
@@ -416,14 +452,30 @@ class _CalculatorPageState extends State<CalculatorPage> {
   String _expr     = '';
   String _disp     = '';
   String _hist     = '';
-  String _histFull = '';   // vollständige Rechnung z.B. "1234 × 5.6 = 6'910.4"
-  bool   _eval     = false;
-  bool   _pendingOp = false; // = nach unvollständiger Eingabe (z.B. 5+= )
+  String _histFull = '';
+  bool   _eval      = false;
+  bool   _pendingOp = false;
+  bool   _swapped   = false;
+
+  String? _repeatOp;
+  double? _repeatVal;
+  String? _repeatDispOp;
+  String? _repeatDispVal;
+
+  String _liveResult = '';
+
+  final _histScrollCtrl = ScrollController();
 
   @override
   void initState() {
     super.initState();
     if (widget.initValue != 0) _setVal(widget.initValue);
+  }
+
+  @override
+  void dispose() {
+    _histScrollCtrl.dispose();
+    super.dispose();
   }
 
   void _setVal(double v) {
@@ -440,11 +492,52 @@ class _CalculatorPageState extends State<CalculatorPage> {
     return _addThousands(s);
   }
 
+  void _captureRepeat(String evalStr) {
+    final m = RegExp(r'([+\-*/])([\d.]+)$').firstMatch(evalStr);
+    if (m == null || m.start == 0) { _repeatOp = null; _repeatVal = null; return; }
+    _repeatOp = m.group(1);
+    _repeatVal = double.tryParse(m.group(2)!);
+    if (_repeatVal == null) { _repeatOp = null; return; }
+    const opMap = {'+': '＋', '-': '−', '*': '×', '/': '÷'};
+    _repeatDispOp = opMap[_repeatOp] ?? _repeatOp;
+    _repeatDispVal = fmtNum(_repeatVal!, dec: _neededDecimals(_repeatVal!));
+  }
+
+  // Berechnet das Zwischenresultat – gibt neuen Wert zurück.
+  // Endet Ausdruck mit Operator, bleibt alter Wert (_liveResult) sichtbar.
+  String _calcLiveResult() {
+    if (_expr.isEmpty) return '';
+    if (!RegExp(r'[+\-*/]').hasMatch(_expr)) return '';
+    // Endet mit Operator → alten Wert beibehalten (Ruhe im Display)
+    if (RegExp(r'[+\-*/]$').hasMatch(_expr)) return _liveResult;
+    try {
+      final open = '('.allMatches(_expr).length - ')'.allMatches(_expr).length;
+      final evalStr = _expr + ')' * (open > 0 ? open : 0);
+      final parser = Parser();
+      final exp = parser.parse(evalStr);
+      final ctx = ContextModel();
+      final result = exp.evaluate(EvaluationType.REAL, ctx) as double;
+      if (!result.isFinite) return _liveResult;
+      return '= ${fmtNum(result, dec: _neededDecimals(result))}';
+    } catch (_) {
+      return _liveResult;
+    }
+  }
+
+  void _refreshLiveResult() {
+    // Nach = zeigt histFull; liveResult bleibt für den Moment nach dem nächsten Op
+    if (_eval) return;
+    final v = _calcLiveResult();
+    if (v != _liveResult) setState(() => _liveResult = v);
+  }
+
   void _btn(String t) {
     setState(() {
       if (t != '=') _pendingOp = false;
       if (t == 'CE') {
-        _expr = ''; _disp = ''; _hist = ''; _histFull = ''; _eval = false; return;
+        _expr = ''; _disp = ''; _hist = ''; _histFull = ''; _eval = false;
+        _repeatOp = null; _repeatVal = null; _liveResult = '';
+        return;
       }
       if (t == '←') {
         if (_eval) { _expr = ''; _disp = ''; _eval = false; return; }
@@ -457,11 +550,25 @@ class _CalculatorPageState extends State<CalculatorPage> {
         }
         return;
       }
-      if (t == '=') { _evaluate(); return; }
+      if (t == '=') {
+        if (_eval && _repeatOp != null && _repeatVal != null) {
+          final current = double.tryParse(_expr);
+          if (current != null) {
+            final dispCurrent = fmtNum(current, dec: _neededDecimals(current));
+            _expr = '$_expr${_repeatOp!}${_repeatVal!}';
+            _disp = '$dispCurrent${_repeatDispOp ?? _repeatOp!}${_repeatDispVal ?? _repeatVal.toString()}';
+            _eval = false;
+          }
+        }
+        _evaluate();
+        return;
+      }
 
       if (_eval && !['＋','−','×','÷','%','x²'].any((op) => t == op)) {
         _expr = ''; _disp = '';
+        _repeatOp = null; _repeatVal = null; _liveResult = '';
       }
+      if (_eval) _histFull = '';
       _eval = false;
 
       final map = {'√': ['sqrt(', '√('], 'x²': ['^2', '²'],
@@ -492,6 +599,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
         _expr += t; _disp += t;
       }
     });
+    _refreshLiveResult();
   }
 
   void _evaluate() {
@@ -515,9 +623,11 @@ class _CalculatorPageState extends State<CalculatorPage> {
         setState(() {
           _disp = tr('÷ 0 nicht möglich', '÷ 0 not possible');
           _expr = ''; _eval = false; _pendingOp = false;
+          _repeatOp = null; _repeatVal = null;
         });
         return;
       }
+      _captureRepeat(evalStr);
       setState(() {
         _hist = '$dispStr =';
         final rs = fmtNum(result, dec: _neededDecimals(result));
@@ -528,10 +638,21 @@ class _CalculatorPageState extends State<CalculatorPage> {
         _pendingOp = false;
         widget.onResult(result);
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _histScrollCtrl.hasClients &&
+            _histScrollCtrl.position.hasContentDimensions) {
+          _histScrollCtrl.animateTo(
+            _histScrollCtrl.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 100),
+            curve: Curves.easeOut,
+          );
+        }
+      });
     } catch (_) {
       setState(() {
         _disp = tr('Fehler', 'Error');
         _expr = ''; _eval = false; _pendingOp = false;
+        _repeatOp = null; _repeatVal = null;
       });
     }
   }
@@ -577,6 +698,25 @@ class _CalculatorPageState extends State<CalculatorPage> {
               padding: const EdgeInsets.fromLTRB(6, 8, 6, 4),
               child: Column(
                 children: [
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _swapped = !_swapped),
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 4, bottom: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: _swapped ? cs.primaryContainer : cs.surfaceVariant,
+                          border: Border.all(
+                            color: _swapped ? cs.primary : cs.outline.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        child: Icon(Icons.swap_horiz, size: 16,
+                            color: _swapped ? cs.primary : cs.onSurfaceVariant),
+                      ),
+                    ),
+                  ),
                   _row(['CE', '←', '(', ')', '%'],
                       bgs: [fn,fn,fn,fn,fn], fgs: [fnFg,fnFg,fnFg,fnFg,fnFg]),
                   _row(['√', 'x²', '7', '8', '9'],
@@ -585,26 +725,53 @@ class _CalculatorPageState extends State<CalculatorPage> {
                       bgs: [op,op,null,null,null], fgs: [Colors.white, Colors.white,null,null,null]),
                   _row(['−', '＋', '1', '2', '3'],
                       bgs: [op,op,null,null,null], fgs: [Colors.white, Colors.white,null,null,null]),
-                  Row(children: [
-                    _buildBtn('±', bg: fn, fg: fnFg),
-                    _buildBtn('.'),
-                    _buildBtn('0'),
-                    _buildBtn('=', bg: eq, fg: Colors.white, flex: 2),
-                  ]),
+                  if (!_swapped)
+                    Row(children: [
+                      _buildBtn('±', bg: fn, fg: fnFg),
+                      _buildBtn('.'),
+                      _buildBtn('0'),
+                      _buildBtn('=', bg: eq, fg: Colors.white, flex: 2),
+                    ])
+                  else
+                    Row(children: [
+                      _buildBtn('=', bg: eq, fg: Colors.white, flex: 2),
+                      _buildBtn('0'),
+                      _buildBtn('.'),
+                      _buildBtn('±', bg: fn, fg: fnFg),
+                    ]),
                   const Spacer(),
-                  if (_disp.isNotEmpty || _histFull.isNotEmpty)
-                    Padding(
+                  SizedBox(
+                    height: 70,
+                    child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        _histFull.isNotEmpty ? _histFull : _disp,
-                        style: TextStyle(
-                          fontSize: 22,
-                          color: cs.onSurface.withValues(alpha: _histFull.isNotEmpty ? 0.45 : 0.70),
-                        ),
-                        textAlign: TextAlign.right,
-                        maxLines: 3,
-                      ),
+                      child: () {
+                        final bottomText = _histFull.isNotEmpty ? _histFull : _liveResult;
+                        final alpha = _histFull.isNotEmpty ? 0.45 : 0.75;
+                        if (bottomText.isEmpty) return const SizedBox.shrink();
+                        return LayoutBuilder(builder: (ctx, constraints) {
+                          return SingleChildScrollView(
+                            controller: _histScrollCtrl,
+                            scrollDirection: Axis.horizontal,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  bottomText,
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    color: cs.onSurface.withValues(alpha: alpha),
+                                  ),
+                                  textAlign: TextAlign.right,
+                                  maxLines: 1,
+                                ),
+                              ),
+                            ),
+                          );
+                        });
+                      }(),
                     ),
+                  ),
                   const Spacer(),
                 ],
               ),
@@ -617,6 +784,11 @@ class _CalculatorPageState extends State<CalculatorPage> {
 
   Widget _row(List<String> labels,
       {List<Color?>? bgs, List<Color?>? fgs}) {
+    if (_swapped) {
+      labels = labels.reversed.toList();
+      bgs = bgs?.reversed.toList();
+      fgs = fgs?.reversed.toList();
+    }
     return Row(
       children: List.generate(labels.length, (i) => _buildBtn(
         labels[i],
