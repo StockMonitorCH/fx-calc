@@ -470,7 +470,60 @@ class _CalculatorPageState extends State<CalculatorPage> {
   @override
   void initState() {
     super.initState();
-    if (widget.initValue != 0) _setVal(widget.initValue);
+    _loadPrefs();
+  }
+
+  Future<void> _loadPrefs() async {
+    final p = await SharedPreferences.getInstance();
+    final expr = p.getString('calc_expr') ?? '';
+    if (expr.isEmpty) {
+      if (widget.initValue != 0) setState(() => _setVal(widget.initValue));
+      return;
+    }
+    setState(() {
+      _expr        = expr;
+      _disp        = p.getString('calc_disp')        ?? '';
+      _hist        = p.getString('calc_hist')        ?? '';
+      _histFull    = p.getString('calc_hist_full')   ?? '';
+      _eval        = p.getBool('calc_eval')          ?? false;
+      _swapped     = p.getBool('calc_swapped')       ?? false;
+      _liveResult  = p.getString('calc_live_result') ?? '';
+      _repeatOp    = p.getString('calc_repeat_op');
+      _repeatVal   = p.getDouble('calc_repeat_val');
+      _repeatDispOp  = p.getString('calc_repeat_disp_op');
+      _repeatDispVal = p.getString('calc_repeat_disp_val');
+    });
+  }
+
+  Future<void> _savePrefs() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('calc_expr',        _expr);
+    await p.setString('calc_disp',        _disp);
+    await p.setString('calc_hist',        _hist);
+    await p.setString('calc_hist_full',   _histFull);
+    await p.setBool('calc_eval',          _eval);
+    await p.setBool('calc_swapped',       _swapped);
+    await p.setString('calc_live_result', _liveResult);
+    if (_repeatOp != null) {
+      await p.setString('calc_repeat_op', _repeatOp!);
+    } else {
+      await p.remove('calc_repeat_op');
+    }
+    if (_repeatVal != null) {
+      await p.setDouble('calc_repeat_val', _repeatVal!);
+    } else {
+      await p.remove('calc_repeat_val');
+    }
+    if (_repeatDispOp != null) {
+      await p.setString('calc_repeat_disp_op', _repeatDispOp!);
+    } else {
+      await p.remove('calc_repeat_disp_op');
+    }
+    if (_repeatDispVal != null) {
+      await p.setString('calc_repeat_disp_val', _repeatDispVal!);
+    } else {
+      await p.remove('calc_repeat_disp_val');
+    }
   }
 
   @override
@@ -601,6 +654,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
       }
     });
     _refreshLiveResult();
+    _savePrefs();
   }
 
   void _evaluate() {
@@ -702,7 +756,10 @@ class _CalculatorPageState extends State<CalculatorPage> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: GestureDetector(
-                      onTap: () => setState(() => _swapped = !_swapped),
+                      onTap: () {
+                        setState(() => _swapped = !_swapped);
+                        _savePrefs();
+                      },
                       child: Container(
                         margin: const EdgeInsets.only(right: 4, bottom: 2),
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
