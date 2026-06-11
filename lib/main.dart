@@ -42,9 +42,9 @@ String fmtNum(double v, {int dec = 4}) {
 
 // Wie viele Dezimalstellen braucht ein Ergebnis wirklich?
 // Nutzt toStringAsPrecision(10) direkt – ohne Double-Roundtrip, der neues Rauschen einführt.
-int _neededDecimals(double v, {int max = 8}) {
+int _neededDecimals(double v, {int max = 12}) {
   if (v == v.truncateToDouble()) return 0;
-  final s = v.toStringAsPrecision(10);
+  final s = v.toStringAsPrecision(12);
   // Wissenschaftliche Notation (sehr grosse/kleine Zahlen)
   if (s.contains('e') || s.contains('E')) return max;
   final dot = s.indexOf('.');
