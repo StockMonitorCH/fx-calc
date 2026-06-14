@@ -34,8 +34,7 @@ String tr(String de, String en) => _isDE() ? de : en;
 // ─── Zahlenformat (aus System-Locale) ────────────────────────────────────────
 
 String fmtNum(double v, {int dec = 4}) {
-  // Immer CH-Format: Apostroph als Tausendertrennzeichen, Punkt als Dezimalzeichen
-  final f = NumberFormat.decimalPatternDigits(locale: 'de_CH', decimalDigits: dec);
+  final f = NumberFormat.decimalPatternDigits(locale: Platform.localeName, decimalDigits: dec);
   return f.format(v);
 }
 
@@ -57,7 +56,15 @@ int _neededDecimals(double v, {int max = 12}) {
 // ─── Tausendertrennzeichen für Eingabe ───────────────────────────────────────
 
 String _thousandFmt(String digits) {
-  const sep = "'";
+  final lang = Platform.localeName.toLowerCase();
+  final String sep;
+  if (lang.startsWith('de_ch') || lang.startsWith('de_at')) {
+    sep = "'";
+  } else if (lang.startsWith('de')) {
+    sep = '.';
+  } else {
+    sep = ',';
+  }
   final buf = StringBuffer();
   final offset = digits.length % 3;
   for (int i = 0; i < digits.length; i++) {
