@@ -3,7 +3,7 @@ description: FX Calc – Calculator & Currency Converter
 
 publish_to: 'none'
 
-version: 1.2.2+16
+version: 1.2.3+17
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

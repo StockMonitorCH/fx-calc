@@ -34,9 +34,8 @@ String tr(String de, String en) => _isDE() ? de : en;
 // ─── Zahlenformat (aus System-Locale) ────────────────────────────────────────
 
 String fmtNum(double v, {int dec = 4}) {
-  final locale = Platform.localeName;
-  final f = NumberFormat.decimalPatternDigits(
-    locale: locale, decimalDigits: dec);
+  // Immer CH-Format: Apostroph als Tausendertrennzeichen, Punkt als Dezimalzeichen
+  final f = NumberFormat.decimalPatternDigits(locale: 'de_CH', decimalDigits: dec);
   return f.format(v);
 }
 
@@ -58,7 +57,7 @@ int _neededDecimals(double v, {int max = 12}) {
 // ─── Tausendertrennzeichen für Eingabe ───────────────────────────────────────
 
 String _thousandFmt(String digits) {
-  final sep = _isDE() ? "'" : ',';
+  const sep = "'";
   final buf = StringBuffer();
   final offset = digits.length % 3;
   for (int i = 0; i < digits.length; i++) {
@@ -343,6 +342,7 @@ class CalcDisplay extends StatefulWidget {
   final String sub;
   final String history;
   final bool pendingOp;
+  final bool error;
 
   const CalcDisplay({
     super.key,
@@ -350,6 +350,7 @@ class CalcDisplay extends StatefulWidget {
     this.sub = '',
     this.history = '',
     this.pendingOp = false,
+    this.error = false,
   });
 
   @override
@@ -386,7 +387,8 @@ class _CalcDisplayState extends State<CalcDisplay> {
     final cs = Theme.of(context).colorScheme;
     final fs = widget.main.length <= 14 ? 36.0 : 26.0;
     final mainStyle = TextStyle(
-        fontSize: fs, fontWeight: FontWeight.bold, color: cs.primary);
+        fontSize: fs, fontWeight: FontWeight.bold,
+        color: widget.error ? cs.error : cs.primary);
 
     return SizedBox(
       height: 130,
@@ -457,6 +459,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
   bool   _eval      = false;
   bool   _pendingOp = false;
   bool   _swapped   = false;
+  bool   _hasError  = false;
 
   String? _repeatOp;
   double? _repeatVal;
@@ -587,6 +590,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
 
   void _btn(String t) {
     setState(() {
+      _hasError = false;
       if (t != '=') _pendingOp = false;
       if (t == 'CE') {
         _expr = ''; _disp = ''; _hist = ''; _histFull = ''; _eval = false;
@@ -649,7 +653,15 @@ class _CalculatorPageState extends State<CalculatorPage> {
         final lastOp = _disp.lastIndexOf(RegExp(r'[×÷＋−()]'));
         final cur = lastOp >= 0 ? _disp.substring(lastOp + 1) : _disp;
         if (!cur.contains('.')) { _expr += '.'; _disp += '.'; }
+      } else if (t == ')') {
+        // Schliessende Klammer nur wenn eine offene vorhanden ist
+        final open = '('.allMatches(_expr).length - ')'.allMatches(_expr).length;
+        if (open > 0) { _expr += ')'; _disp += ')'; }
       } else {
+        // Ziffer nach ) → implizites ×
+        if (RegExp(r'^[0-9]$').hasMatch(t) && _expr.isNotEmpty && _expr[_expr.length - 1] == ')') {
+          _expr += '*'; _disp += '×';
+        }
         _expr += t; _disp += t;
       }
     });
@@ -684,9 +696,10 @@ class _CalculatorPageState extends State<CalculatorPage> {
       }
       _captureRepeat(evalStr);
       setState(() {
-        _hist = '$dispStr =';
+        final fmtDisp = _addThousands(dispStr);
+        _hist = '$fmtDisp =';
         final rs = fmtNum(result, dec: _neededDecimals(result));
-        _histFull = '$dispStr = $rs';
+        _histFull = '$fmtDisp = $rs';
         _disp = rs;
         _expr = result.toString();
         _eval = true;
@@ -704,11 +717,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
         }
       });
     } catch (_) {
-      setState(() {
-        _disp = tr('Fehler', 'Error');
-        _expr = ''; _eval = false; _pendingOp = false;
-        _repeatOp = null; _repeatVal = null;
-      });
+      setState(() { _hasError = true; _pendingOp = false; });
     }
   }
 
@@ -747,7 +756,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
     return SafeArea(
       child: Column(
         children: [
-          CalcDisplay(main: _displayText, pendingOp: _pendingOp),
+          CalcDisplay(main: _displayText, pendingOp: _pendingOp, error: _hasError),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(6, 8, 6, 4),
@@ -846,6 +855,13 @@ class _CalculatorPageState extends State<CalculatorPage> {
       labels = labels.reversed.toList();
       bgs = bgs?.reversed.toList();
       fgs = fgs?.reversed.toList();
+      // Nach dem Umkehren ( und ) wieder in richtiger Reihenfolge halten
+      final iOpen  = labels.indexOf('(');
+      final iClose = labels.indexOf(')');
+      if (iOpen != -1 && iClose != -1 && iOpen > iClose) {
+        labels[iOpen] = ')';
+        labels[iClose] = '(';
+      }
     }
     return Row(
       children: List.generate(labels.length, (i) => _buildBtn(
