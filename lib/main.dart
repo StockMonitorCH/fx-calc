@@ -372,13 +372,16 @@ class _CalcDisplayState extends State<CalcDisplay> {
     super.didUpdateWidget(oldWidget);
     if (widget.main != oldWidget.main) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollCtrl.hasClients) {
-          _scrollCtrl.animateTo(
-            _scrollCtrl.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 100),
-            curve: Curves.easeOut,
-          );
-        }
+        if (!_scrollCtrl.hasClients) return;
+        final cursorIdx = widget.main.indexOf('│');
+        final target = (cursorIdx >= 0 && widget.main.length > 1)
+            ? (cursorIdx / widget.main.length) * _scrollCtrl.position.maxScrollExtent
+            : _scrollCtrl.position.maxScrollExtent;
+        _scrollCtrl.animateTo(
+          target,
+          duration: const Duration(milliseconds: 100),
+          curve: Curves.easeOut,
+        );
       });
     }
   }
@@ -418,22 +421,45 @@ class _CalcDisplayState extends State<CalcDisplay> {
                 scrollDirection: Axis.horizontal,
                 child: ConstrainedBox(
                   constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                  child: widget.pendingOp && widget.main.isNotEmpty
-                      ? RichText(
-                          textAlign: TextAlign.right,
-                          maxLines: 1,
-                          text: TextSpan(
-                            style: mainStyle,
-                            children: [
-                              TextSpan(text: widget.main.substring(0, widget.main.length - 1)),
-                              TextSpan(
-                                  text: widget.main[widget.main.length - 1],
-                                  style: TextStyle(color: cs.error)),
-                            ],
+                  child: () {
+                  final cursorIdx = widget.main.indexOf('│');
+                  if (cursorIdx >= 0) {
+                    return RichText(
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      text: TextSpan(
+                        style: mainStyle,
+                        children: [
+                          if (cursorIdx > 0)
+                            TextSpan(text: widget.main.substring(0, cursorIdx)),
+                          TextSpan(
+                            text: '│',
+                            style: TextStyle(color: cs.primary, fontWeight: FontWeight.w100),
                           ),
-                        )
-                      : Text(widget.main, style: mainStyle,
-                          textAlign: TextAlign.right, maxLines: 1),
+                          if (cursorIdx + 1 < widget.main.length)
+                            TextSpan(text: widget.main.substring(cursorIdx + 1)),
+                        ],
+                      ),
+                    );
+                  } else if (widget.pendingOp && widget.main.isNotEmpty) {
+                    return RichText(
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      text: TextSpan(
+                        style: mainStyle,
+                        children: [
+                          TextSpan(text: widget.main.substring(0, widget.main.length - 1)),
+                          TextSpan(
+                              text: widget.main[widget.main.length - 1],
+                              style: TextStyle(color: cs.error)),
+                        ],
+                      ),
+                    );
+                  } else {
+                    return Text(widget.main, style: mainStyle,
+                        textAlign: TextAlign.right, maxLines: 1);
+                  }
+                }(),
                 ),
               );
             }),
@@ -474,6 +500,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
   String? _repeatDispVal;
 
   String _liveResult = '';
+  int _dispCursor = -1; // -1 = Cursor am Ende (Standard)
 
   final _histScrollCtrl = ScrollController();
 
@@ -552,8 +579,12 @@ class _CalculatorPageState extends State<CalculatorPage> {
   String get _displayText {
     final d = _disp.isEmpty ? '0' : _disp;
     final open = '('.allMatches(d).length - ')'.allMatches(d).length;
-    final s = open > 0 ? d + ')' * open : d;
-    return _addThousands(s);
+    final filled = open > 0 ? d + ')' * open : d;
+    if (_dispCursor >= 0 && _disp.isNotEmpty) {
+      final pos = _dispCursor.clamp(0, filled.length);
+      return filled.substring(0, pos) + '│' + filled.substring(pos);
+    }
+    return _addThousands(filled);
   }
 
   void _captureRepeat(String evalStr) {
@@ -588,6 +619,21 @@ class _CalculatorPageState extends State<CalculatorPage> {
     }
   }
 
+  // Leitet _expr aus dem Anzeigestring ab – wird nach jeder Cursor-Edit genutzt
+  String _dispToExpr(String disp) => disp
+      .replaceAll('√(', 'sqrt(')
+      .replaceAll('²', '^2')
+      .replaceAll('%', '/100')
+      .replaceAll('×', '*')
+      .replaceAll('÷', '/')
+      .replaceAll('＋', '+')
+      .replaceAll('−', '-');
+
+  int get _effectiveCursor =>
+      _dispCursor < 0 ? _disp.length : _dispCursor.clamp(0, _disp.length);
+  String get _dispBefore => _disp.substring(0, _effectiveCursor);
+  String get _dispAfter  => _disp.substring(_effectiveCursor);
+
   void _refreshLiveResult() {
     // Nach = zeigt histFull; liveResult bleibt für den Moment nach dem nächsten Op
     if (_eval) return;
@@ -599,23 +645,50 @@ class _CalculatorPageState extends State<CalculatorPage> {
     setState(() {
       _hasError = false;
       if (t != '=') _pendingOp = false;
-      if (t == 'CE') {
-        _expr = ''; _disp = ''; _hist = ''; _histFull = ''; _eval = false;
-        _repeatOp = null; _repeatVal = null; _liveResult = '';
+
+      // ── Cursor-Navigation ──────────────────────────────────────────────────
+      if (t == '◀') {
+        final pos = _effectiveCursor;
+        if (pos > 0) _dispCursor = pos - 1;
         return;
       }
-      if (t == '←') {
-        if (_eval) { _expr = ''; _disp = ''; _eval = false; return; }
-        if (_disp.isNotEmpty) {
-          // Multi-char tokens
-          if (_disp.endsWith('√(')) { _expr = _expr.substring(0, _expr.length - 5); _disp = _disp.substring(0, _disp.length - 2); }
-          else if (_disp.endsWith('²')) { _expr = _expr.substring(0, _expr.length - 3); _disp = _disp.substring(0, _disp.length - 1); }
-          else if (_disp.endsWith('%')) { _expr = _expr.substring(0, _expr.length - 4); _disp = _disp.substring(0, _disp.length - 1); }
-          else { _expr = _expr.substring(0, _expr.length - 1); _disp = _disp.substring(0, _disp.length - 1); }
+      if (t == '▶') {
+        final pos = _effectiveCursor;
+        if (pos < _disp.length) {
+          final next = pos + 1;
+          _dispCursor = next >= _disp.length ? -1 : next;
         }
         return;
       }
+
+      // ── CE ─────────────────────────────────────────────────────────────────
+      if (t == 'CE') {
+        _expr = ''; _disp = ''; _hist = ''; _histFull = ''; _eval = false;
+        _repeatOp = null; _repeatVal = null; _liveResult = '';
+        _dispCursor = -1;
+        return;
+      }
+
+      // ── Backspace ──────────────────────────────────────────────────────────
+      if (t == '←') {
+        if (_eval) { _expr = ''; _disp = ''; _eval = false; _dispCursor = -1; return; }
+        final before = _dispBefore;
+        final after  = _dispAfter;
+        if (before.isEmpty) return;
+        int removeLen;
+        if (before.endsWith('√('))     removeLen = 2;
+        else if (before.endsWith('²')) removeLen = 1;
+        else if (before.endsWith('%')) removeLen = 1;
+        else                           removeLen = 1;
+        _disp = before.substring(0, before.length - removeLen) + after;
+        _expr = _dispToExpr(_disp);
+        if (_dispCursor >= 0) _dispCursor = math.max(0, _dispCursor - removeLen);
+        return;
+      }
+
+      // ── = ──────────────────────────────────────────────────────────────────
       if (t == '=') {
+        _dispCursor = -1;
         if (_eval && _repeatOp != null && _repeatVal != null) {
           final current = double.tryParse(_expr);
           if (current != null) {
@@ -629,48 +702,82 @@ class _CalculatorPageState extends State<CalculatorPage> {
         return;
       }
 
+      // ── Nach Ergebnis: löschen oder weitermachen ───────────────────────────
       if (_eval && !['＋','−','×','÷','%','x²'].any((op) => t == op)) {
         _expr = ''; _disp = '';
         _repeatOp = null; _repeatVal = null; _liveResult = '';
+        _dispCursor = -1;
       }
-      if (_eval) _histFull = '';
+      if (_eval) { _histFull = ''; _dispCursor = -1; }
       _eval = false;
 
-      final map = {'√': ['sqrt(', '√('], 'x²': ['^2', '²'],
-        '×': ['*', '×'], '÷': ['/', '÷'], '%': ['/100', '%'],
-        '＋': ['+', '＋'], '−': ['-', '−']};
+      // ── Einfügen an Cursor-Position ────────────────────────────────────────
+      final before = _dispBefore;
+      final after  = _dispAfter;
+
+      const binOps = {'×', '÷', '＋', '−'};
+      final map = {
+        '√':  ['sqrt(', '√('],
+        'x²': ['^2',    '²'],
+        '×':  ['*',     '×'],
+        '÷':  ['/',     '÷'],
+        '%':  ['/100',  '%'],
+        '＋': ['+',     '＋'],
+        '−':  ['-',     '−'],
+      };
+
       if (map.containsKey(t)) {
-        const binOps = {'×', '÷', '＋', '−'};
-        if (binOps.contains(t) && _disp.isNotEmpty && binOps.contains(_disp[_disp.length - 1])) {
-          _expr = _expr.substring(0, _expr.length - 1);
-          _disp = _disp.substring(0, _disp.length - 1);
+        var newBefore = before;
+        if (binOps.contains(t) && newBefore.isNotEmpty &&
+            binOps.contains(newBefore[newBefore.length - 1])) {
+          newBefore = newBefore.substring(0, newBefore.length - 1);
+          if (_dispCursor >= 0) _dispCursor -= 1;
         }
-        _expr += map[t]![0]; _disp += map[t]![1];
+        final dispChars = map[t]![1];
+        _disp = newBefore + dispChars + after;
+        _expr = _dispToExpr(_disp);
+        if (_dispCursor >= 0) _dispCursor += dispChars.length;
       } else if (t == '±') {
-        if (_expr.isNotEmpty) { _expr = '-($_expr)'; _disp = '-($_disp)'; }
-        else { _expr = '-'; _disp = '-'; }
+        if (_disp.isNotEmpty) { _disp = '-($_disp)'; _expr = _dispToExpr(_disp); }
+        else                  { _disp = '-'; _expr = '-'; }
+        _dispCursor = -1;
       } else if (t == '(') {
-        // 2( → 2*(
-        if (_expr.isNotEmpty && RegExp(r'[0-9)]').hasMatch(_expr[_expr.length - 1])) {
-          _expr += '*'; _disp += '×';
+        var dispChars = '(';
+        if (before.isNotEmpty && RegExp(r'[0-9)]').hasMatch(before[before.length - 1])) {
+          dispChars = '×(';
         }
-        _expr += '('; _disp += '(';
+        _disp = before + dispChars + after;
+        _expr = _dispToExpr(_disp);
+        if (_dispCursor >= 0) _dispCursor += dispChars.length;
       } else if (t == '.') {
-        // Zweiten Punkt in derselben Zahl ignorieren
-        final lastOp = _disp.lastIndexOf(RegExp(r'[×÷＋−()]'));
-        final cur = lastOp >= 0 ? _disp.substring(lastOp + 1) : _disp;
-        if (!cur.contains('.')) { _expr += '.'; _disp += '.'; }
-      } else if (t == ')') {
-        // Schliessende Klammer nur wenn eine offene vorhanden ist
-        final open = '('.allMatches(_expr).length - ')'.allMatches(_expr).length;
-        if (open > 0) { _expr += ')'; _disp += ')'; }
-      } else {
-        // Ziffer nach ) → implizites ×
-        if (RegExp(r'^[0-9]$').hasMatch(t) && _expr.isNotEmpty && _expr[_expr.length - 1] == ')') {
-          _expr += '*'; _disp += '×';
+        final lastOp = before.lastIndexOf(RegExp(r'[×÷＋−()]'));
+        final cur = lastOp >= 0 ? before.substring(lastOp + 1) : before;
+        if (!cur.contains('.')) {
+          _disp = before + '.' + after;
+          _expr = _dispToExpr(_disp);
+          if (_dispCursor >= 0) _dispCursor += 1;
         }
-        _expr += t; _disp += t;
+      } else if (t == ')') {
+        final open = '('.allMatches(_disp).length - ')'.allMatches(_disp).length;
+        if (open > 0) {
+          _disp = before + ')' + after;
+          _expr = _dispToExpr(_disp);
+          if (_dispCursor >= 0) _dispCursor += 1;
+        }
+      } else {
+        // Ziffer
+        var dispChars = t;
+        if (RegExp(r'^[0-9]$').hasMatch(t) && before.isNotEmpty &&
+            before[before.length - 1] == ')') {
+          dispChars = '×$t';
+        }
+        _disp = before + dispChars + after;
+        _expr = _dispToExpr(_disp);
+        if (_dispCursor >= 0) _dispCursor += dispChars.length;
       }
+
+      // Sicherheits-Clamp
+      if (_dispCursor >= _disp.length) _dispCursor = -1;
     });
     _refreshLiveResult();
     _savePrefs();
@@ -697,7 +804,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
         setState(() {
           _disp = tr('÷ 0 nicht möglich', '÷ 0 not possible');
           _expr = ''; _eval = false; _pendingOp = false;
-          _repeatOp = null; _repeatVal = null;
+          _repeatOp = null; _repeatVal = null; _dispCursor = -1;
         });
         return;
       }
@@ -711,6 +818,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
         _expr = result.toString();
         _eval = true;
         _pendingOp = false;
+        _dispCursor = -1;
         widget.onResult(result);
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -724,11 +832,11 @@ class _CalculatorPageState extends State<CalculatorPage> {
         }
       });
     } catch (_) {
-      setState(() { _hasError = true; _pendingOp = false; });
+      setState(() { _hasError = true; _pendingOp = false; _dispCursor = -1; });
     }
   }
 
-  Widget _buildBtn(String label, {Color? bg, Color? fg, int flex = 1}) {
+  Widget _buildBtn(String label, {Color? bg, Color? fg, int flex = 1, double minHeight = 58}) {
     final cs = Theme.of(context).colorScheme;
     return Expanded(
       flex: flex,
@@ -738,7 +846,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
           style: ElevatedButton.styleFrom(
             backgroundColor: bg ?? cs.surfaceVariant,
             foregroundColor: fg ?? cs.onSurfaceVariant,
-            minimumSize: const Size(0, 58),
+            minimumSize: Size(0, minHeight),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
           onPressed: () => _btn(label),
@@ -747,6 +855,26 @@ class _CalculatorPageState extends State<CalculatorPage> {
                   fontSize: 18,
                   fontWeight: (label == '=' || ['＋','−','×','÷'].contains(label))
                       ? FontWeight.bold : FontWeight.normal)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavBtn(String token, IconData icon) {
+    final cs = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(3, 0, 3, 2),
+        child: OutlinedButton(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: cs.primary,
+            minimumSize: const Size(0, 34),
+            padding: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
+          ),
+          onPressed: () => _btn(token),
+          child: Icon(icon, size: 16),
         ),
       ),
     );
@@ -791,6 +919,11 @@ class _CalculatorPageState extends State<CalculatorPage> {
                       ),
                     ),
                   ),
+                  // Cursor-Navigation
+                  Row(children: [
+                    _buildNavBtn('◀', Icons.arrow_back_ios_rounded),
+                    _buildNavBtn('▶', Icons.arrow_forward_ios_rounded),
+                  ]),
                   _row(['CE', '←', '(', ')', '%'],
                       bgs: [fn,fn,fn,fn,fn], fgs: [fnFg,fnFg,fnFg,fnFg,fnFg]),
                   _row(['√', 'x²', '7', '8', '9'],
