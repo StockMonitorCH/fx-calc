@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -308,6 +309,7 @@ class _HomeScreenState extends State<HomeScreen> {
       CalculatorPage(initValue: _memValue, onResult: _onMemCalc),
       CurrencyPage(initAmount: _memValue > 0 ? _memValue : 1, onResult: _onMemCurr, onCurrencyChanged: _onCurrencyChanged),
       SavingsPage(currency: _currency),
+      FinancePage(initValue: _memValue, onResult: _onMemCalc),
       InfoPage(onCheckUpdate: () => _checkForUpdate(showUpToDate: true)),
     ];
     return Scaffold(
@@ -332,6 +334,11 @@ class _HomeScreenState extends State<HomeScreen> {
             label: tr('Zins', 'Interest'),
           ),
           NavigationDestination(
+            icon: const Icon(Icons.account_balance_outlined),
+            selectedIcon: const Icon(Icons.account_balance),
+            label: tr('Finanz', 'Finance'),
+          ),
+          NavigationDestination(
             icon: const Icon(Icons.info_outline),
             selectedIcon: const Icon(Icons.info),
             label: tr('Info', 'Info'),
@@ -350,6 +357,8 @@ class CalcDisplay extends StatefulWidget {
   final String history;
   final bool pendingOp;
   final bool error;
+  final String? rawText;
+  final void Function(int charIndex)? onTapChar;
 
   const CalcDisplay({
     super.key,
@@ -358,6 +367,8 @@ class CalcDisplay extends StatefulWidget {
     this.history = '',
     this.pendingOp = false,
     this.error = false,
+    this.rawText,
+    this.onTapChar,
   });
 
   @override
@@ -392,6 +403,24 @@ class _CalcDisplayState extends State<CalcDisplay> {
     super.dispose();
   }
 
+  void _onTap(TapDownDetails details, double containerWidth) {
+    final raw = widget.rawText!;
+    if (raw.isEmpty) return;
+    final fs = widget.main.length <= 14 ? 36.0 : 26.0;
+    final style = TextStyle(fontSize: fs, fontWeight: FontWeight.bold);
+    final painter = TextPainter(
+      text: TextSpan(text: raw, style: style),
+      textDirection: ui.TextDirection.ltr,
+    );
+    painter.layout();
+    final scrollOffset = _scrollCtrl.hasClients ? _scrollCtrl.offset : 0.0;
+    final textWidth = painter.width;
+    final textStart = math.max(0.0, containerWidth - textWidth);
+    final tapX = (details.localPosition.dx + scrollOffset - textStart).clamp(0.0, textWidth);
+    final pos = painter.getPositionForOffset(Offset(tapX, 0));
+    widget.onTapChar!(pos.offset);
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -416,7 +445,11 @@ class _CalcDisplayState extends State<CalcDisplay> {
                   textAlign: TextAlign.right),
             const Spacer(),
             LayoutBuilder(builder: (context, constraints) {
-              return SingleChildScrollView(
+              return GestureDetector(
+                onTapDown: (widget.onTapChar != null && widget.rawText != null)
+                    ? (d) => _onTap(d, constraints.maxWidth)
+                    : null,
+                child: SingleChildScrollView(
                 controller: _scrollCtrl,
                 scrollDirection: Axis.horizontal,
                 child: ConstrainedBox(
@@ -461,6 +494,7 @@ class _CalcDisplayState extends State<CalcDisplay> {
                   }
                 }(),
                 ),
+              ),
               );
             }),
             if (widget.sub.isNotEmpty)
@@ -576,15 +610,26 @@ class _CalculatorPageState extends State<CalculatorPage> {
     _hist = '';
   }
 
+  String get _filledDisp {
+    if (_disp.isEmpty) return '';
+    final open = '('.allMatches(_disp).length - ')'.allMatches(_disp).length;
+    return open > 0 ? _disp + ')' * open : _disp;
+  }
+
   String get _displayText {
-    final d = _disp.isEmpty ? '0' : _disp;
-    final open = '('.allMatches(d).length - ')'.allMatches(d).length;
-    final filled = open > 0 ? d + ')' * open : d;
-    if (_dispCursor >= 0 && _disp.isNotEmpty) {
+    final filled = _filledDisp;
+    if (filled.isEmpty) return '0';
+    if (_dispCursor >= 0) {
       final pos = _dispCursor.clamp(0, filled.length);
       return filled.substring(0, pos) + '│' + filled.substring(pos);
     }
     return _addThousands(filled);
+  }
+
+  void _onTapDisplay(int charIndex) {
+    if (_eval || _disp.isEmpty) return;
+    final clamped = charIndex.clamp(0, _disp.length);
+    setState(() => _dispCursor = clamped >= _disp.length ? -1 : clamped);
   }
 
   void _captureRepeat(String evalStr) {
@@ -860,26 +905,6 @@ class _CalculatorPageState extends State<CalculatorPage> {
     );
   }
 
-  Widget _buildNavBtn(String token, IconData icon) {
-    final cs = Theme.of(context).colorScheme;
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(3, 0, 3, 2),
-        child: OutlinedButton(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: cs.primary,
-            minimumSize: const Size(0, 34),
-            padding: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
-          ),
-          onPressed: () => _btn(token),
-          child: Icon(icon, size: 16),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -891,7 +916,13 @@ class _CalculatorPageState extends State<CalculatorPage> {
     return SafeArea(
       child: Column(
         children: [
-          CalcDisplay(main: _displayText, pendingOp: _pendingOp, error: _hasError),
+          CalcDisplay(
+            main: _displayText,
+            pendingOp: _pendingOp,
+            error: _hasError,
+            rawText: (!_eval && _disp.isNotEmpty) ? _filledDisp : null,
+            onTapChar: _onTapDisplay,
+          ),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(6, 8, 6, 4),
@@ -919,11 +950,6 @@ class _CalculatorPageState extends State<CalculatorPage> {
                       ),
                     ),
                   ),
-                  // Cursor-Navigation
-                  Row(children: [
-                    _buildNavBtn('◀', Icons.arrow_back_ios_rounded),
-                    _buildNavBtn('▶', Icons.arrow_forward_ios_rounded),
-                  ]),
                   _row(['CE', '←', '(', ')', '%'],
                       bgs: [fn,fn,fn,fn,fn], fgs: [fnFg,fnFg,fnFg,fnFg,fnFg]),
                   _row(['√', 'x²', '7', '8', '9'],
@@ -1038,6 +1064,14 @@ class _CurrencyPageState extends State<CurrencyPage> {
     super.initState();
     if (widget.initAmount > 0) {
       _input = widget.initAmount.toString();
+    }
+  }
+
+  @override
+  void didUpdateWidget(CurrencyPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initAmount != oldWidget.initAmount && widget.initAmount > 0 && _result.isEmpty) {
+      setState(() => _input = widget.initAmount.toString());
     }
   }
 
@@ -1541,6 +1575,755 @@ class _SavingsPageState extends State<SavingsPage> {
       ),
     );
   }
+}
+
+// ─── Finanzrechner ────────────────────────────────────────────────────────────
+
+enum _FinMode { tvm, amort, cash, conv, breakeven }
+enum _TVMField { n, i, pv, pmt, fv }
+
+class FinancePage extends StatefulWidget {
+  final double initValue;
+  final void Function(double) onResult;
+  const FinancePage({super.key, required this.initValue, required this.onResult});
+  @override
+  State<FinancePage> createState() => _FinancePageState();
+}
+
+class _FinancePageState extends State<FinancePage> {
+  _FinMode _mode = _FinMode.tvm;
+
+  // TVM
+  final _nCtrl   = TextEditingController();
+  final _iCtrl   = TextEditingController();
+  final _pvCtrl  = TextEditingController();
+  final _pmtCtrl = TextEditingController();
+  final _fvCtrl  = TextEditingController();
+  bool _bgn = false;
+  String _tvmResult = '';
+  String _tvmError  = '';
+
+  // Amort
+  final _amortFromCtrl = TextEditingController(text: '1');
+  final _amortToCtrl   = TextEditingController(text: '1');
+  String _amortResult  = '';
+
+  // Cash flows
+  final List<TextEditingController> _cfCtrls = [
+    TextEditingController(text: '0'),
+    TextEditingController(text: '0'),
+  ];
+  final _npvRateCtrl = TextEditingController();
+  String _cashResult = '';
+  String _cashError  = '';
+
+  // Conversion
+  final _nomCtrl = TextEditingController();
+  final _effCtrl = TextEditingController();
+  final _mCtrl   = TextEditingController(text: '12');
+  String _convResult = '';
+
+  // Break-even
+  final _fcCtrl = TextEditingController();
+  final _vcCtrl = TextEditingController();
+  final _prCtrl = TextEditingController();
+  String _beResult = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrefs();
+  }
+
+  Future<void> _loadPrefs() async {
+    final p = await SharedPreferences.getInstance();
+    setState(() {
+      _nCtrl.text   = p.getString('fin_n')   ?? '';
+      _iCtrl.text   = p.getString('fin_i')   ?? '';
+      _pvCtrl.text  = p.getString('fin_pv')  ?? '';
+      _pmtCtrl.text = p.getString('fin_pmt') ?? '';
+      _fvCtrl.text  = p.getString('fin_fv')  ?? '';
+      _bgn = p.getBool('fin_bgn') ?? false;
+      _amortFromCtrl.text = p.getString('fin_amort_from') ?? '1';
+      _amortToCtrl.text   = p.getString('fin_amort_to')   ?? '1';
+      _npvRateCtrl.text   = p.getString('fin_npv_rate')   ?? '';
+      _nomCtrl.text = p.getString('fin_nom') ?? '';
+      _effCtrl.text = p.getString('fin_eff') ?? '';
+      _mCtrl.text   = p.getString('fin_m')   ?? '12';
+      _fcCtrl.text  = p.getString('fin_fc')  ?? '';
+      _vcCtrl.text  = p.getString('fin_vc')  ?? '';
+      _prCtrl.text  = p.getString('fin_pr')  ?? '';
+      final cfCount = p.getInt('fin_cf_count') ?? 2;
+      while (_cfCtrls.length < cfCount) {
+        _cfCtrls.add(TextEditingController(text: '0'));
+      }
+      for (int i = 0; i < _cfCtrls.length; i++) {
+        _cfCtrls[i].text = p.getString('fin_cf_$i') ?? '0';
+      }
+    });
+  }
+
+  Future<void> _savePrefs() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('fin_n',   _nCtrl.text);
+    await p.setString('fin_i',   _iCtrl.text);
+    await p.setString('fin_pv',  _pvCtrl.text);
+    await p.setString('fin_pmt', _pmtCtrl.text);
+    await p.setString('fin_fv',  _fvCtrl.text);
+    await p.setBool('fin_bgn', _bgn);
+    await p.setString('fin_amort_from', _amortFromCtrl.text);
+    await p.setString('fin_amort_to',   _amortToCtrl.text);
+    await p.setString('fin_npv_rate',   _npvRateCtrl.text);
+    await p.setString('fin_nom', _nomCtrl.text);
+    await p.setString('fin_eff', _effCtrl.text);
+    await p.setString('fin_m',   _mCtrl.text);
+    await p.setString('fin_fc',  _fcCtrl.text);
+    await p.setString('fin_vc',  _vcCtrl.text);
+    await p.setString('fin_pr',  _prCtrl.text);
+    await p.setInt('fin_cf_count', _cfCtrls.length);
+    for (int i = 0; i < _cfCtrls.length; i++) {
+      await p.setString('fin_cf_$i', _cfCtrls[i].text);
+    }
+  }
+
+  @override
+  void dispose() {
+    _nCtrl.dispose(); _iCtrl.dispose(); _pvCtrl.dispose();
+    _pmtCtrl.dispose(); _fvCtrl.dispose();
+    _amortFromCtrl.dispose(); _amortToCtrl.dispose();
+    for (final c in _cfCtrls) c.dispose();
+    _npvRateCtrl.dispose();
+    _nomCtrl.dispose(); _effCtrl.dispose(); _mCtrl.dispose();
+    _fcCtrl.dispose(); _vcCtrl.dispose(); _prCtrl.dispose();
+    super.dispose();
+  }
+
+  // ── TVM Mathematik ───────────────────────────────────────────────────────────
+
+  // Grundgleichung: PV*(1+r)^n + PMT*f*((1+r)^n-1)/r + FV = 0
+  // f = (1+r) für Anfang-Zahlungen (BGN), sonst 1
+  double _tvmEq(double n, double r, double pv, double pmt, double fv) {
+    if (r.abs() < 1e-12) return pv + pmt * n + fv;
+    final x = math.pow(1 + r, n).toDouble();
+    final f = _bgn ? (1 + r) : 1.0;
+    return pv * x + pmt * f * (x - 1) / r + fv;
+  }
+
+  void _solveTVM(_TVMField field) {
+    setState(() { _tvmError = ''; _tvmResult = ''; });
+    final vals = {
+      _TVMField.n:   _parseNum(_nCtrl.text),
+      _TVMField.i:   _parseNum(_iCtrl.text),
+      _TVMField.pv:  _parseNum(_pvCtrl.text),
+      _TVMField.pmt: _parseNum(_pmtCtrl.text),
+      _TVMField.fv:  _parseNum(_fvCtrl.text),
+    };
+    vals.remove(field);
+    if (vals.values.any((v) => v == null)) {
+      setState(() => _tvmError = tr('Bitte die anderen 4 Felder ausfüllen', 'Please fill the other 4 fields'));
+      return;
+    }
+    final n   = vals[_TVMField.n]!;
+    final i   = vals[_TVMField.i];
+    final pv  = vals[_TVMField.pv];
+    final pmt = vals[_TVMField.pmt];
+    final fv  = vals[_TVMField.fv];
+    double result;
+    try {
+      result = switch (field) {
+        _TVMField.n   => _solveN(i! / 100, pv!, pmt!, fv!),
+        _TVMField.i   => _solveI(n, pv!, pmt!, fv!) * 100,
+        _TVMField.pv  => _solvePV(n, i! / 100, pmt!, fv!),
+        _TVMField.pmt => _solvePMT(n, i! / 100, pv!, fv!),
+        _TVMField.fv  => _solveFV(n, i! / 100, pv!, pmt!),
+      };
+    } catch (_) {
+      setState(() => _tvmError = tr('Keine Lösung gefunden', 'No solution found'));
+      return;
+    }
+    if (!result.isFinite) {
+      setState(() => _tvmError = tr('Keine Lösung gefunden', 'No solution found'));
+      return;
+    }
+    final label = switch (field) {
+      _TVMField.n   => 'N',
+      _TVMField.i   => 'I%',
+      _TVMField.pv  => tr('BW', 'PV'),
+      _TVMField.pmt => tr('Rate', 'PMT'),
+      _TVMField.fv  => tr('EW', 'FV'),
+    };
+    setState(() {
+      _tvmResult = '$label = ${fmtNum(result, dec: _neededDecimals(result))}';
+      switch (field) {
+        case _TVMField.n:   _nCtrl.text   = _fmtInput(result);
+        case _TVMField.i:   _iCtrl.text   = _fmtInput(result);
+        case _TVMField.pv:  _pvCtrl.text  = _fmtInput(result);
+        case _TVMField.pmt: _pmtCtrl.text = _fmtInput(result);
+        case _TVMField.fv:  _fvCtrl.text  = _fmtInput(result);
+      }
+    });
+    widget.onResult(result.abs());
+    _savePrefs();
+  }
+
+  double _solvePV(double n, double r, double pmt, double fv) {
+    if (r.abs() < 1e-12) return -(pmt * n + fv);
+    final x = math.pow(1 + r, n).toDouble();
+    final f = _bgn ? (1 + r) : 1.0;
+    return -(pmt * f * (x - 1) / r + fv) / x;
+  }
+
+  double _solveFV(double n, double r, double pv, double pmt) {
+    if (r.abs() < 1e-12) return -(pv + pmt * n);
+    final x = math.pow(1 + r, n).toDouble();
+    final f = _bgn ? (1 + r) : 1.0;
+    return -(pv * x + pmt * f * (x - 1) / r);
+  }
+
+  double _solvePMT(double n, double r, double pv, double fv) {
+    if (r.abs() < 1e-12) { if (n == 0) throw Exception(); return -(pv + fv) / n; }
+    final x = math.pow(1 + r, n).toDouble();
+    final f = _bgn ? (1 + r) : 1.0;
+    return -(pv * x + fv) * r / ((x - 1) * f);
+  }
+
+  double _solveN(double r, double pv, double pmt, double fv) {
+    if (pmt == 0) {
+      if (r.abs() < 1e-12 || fv / pv >= 0) throw Exception();
+      return math.log(-fv / pv) / math.log(1 + r);
+    }
+    if (r.abs() < 1e-12) return -(pv + fv) / pmt;
+    final f = _bgn ? (1 + r) : 1.0;
+    final num = f * pmt - fv * r;
+    final den = f * pmt + pv * r;
+    if (num <= 0 || den <= 0) throw Exception();
+    return math.log(num / den) / math.log(1 + r);
+  }
+
+  double _solveI(double n, double pv, double pmt, double fv) {
+    // Newton-Raphson mit numerischer Ableitung
+    double r = (pmt != 0) ? 0.1 : math.pow(-fv / pv, 1 / n).toDouble() - 1;
+    r = r.clamp(-0.999, 10.0);
+    for (int k = 0; k < 200; k++) {
+      final fr = _tvmEq(n, r, pv, pmt, fv);
+      final eps = math.max(r.abs() * 1e-6, 1e-8);
+      final fp = (_tvmEq(n, r + eps, pv, pmt, fv) - _tvmEq(n, r - eps, pv, pmt, fv)) / (2 * eps);
+      if (fp.abs() < 1e-15) break;
+      final step = (fr / fp).clamp(-0.5, 0.5);
+      r = (r - step).clamp(-0.999, 100.0);
+      if (step.abs() < 1e-12) break;
+    }
+    return r;
+  }
+
+  // ── Amortisation ─────────────────────────────────────────────────────────────
+
+  void _computeAmort() {
+    final n   = _parseNum(_nCtrl.text);
+    final i   = _parseNum(_iCtrl.text);
+    final pv  = _parseNum(_pvCtrl.text);
+    final pmt = _parseNum(_pmtCtrl.text);
+    if (n == null || i == null || pv == null || pmt == null) {
+      setState(() => _amortResult = tr('TVM-Werte (N, I%, BW, Rate) fehlen', 'TVM values (N, I%, PV, PMT) missing'));
+      return;
+    }
+    final from = math.max(1, int.tryParse(_amortFromCtrl.text) ?? 1);
+    final to   = math.min(n.toInt(), int.tryParse(_amortToCtrl.text) ?? 1);
+    if (from > to) {
+      setState(() => _amortResult = tr('Von > Bis', 'From > To'));
+      return;
+    }
+    final r = i / 100;
+    double balance = pv;
+    for (int k = 1; k < from; k++) {
+      balance = balance * (1 + r) + pmt;
+    }
+    double totalInt = 0, totalPrin = 0;
+    for (int k = from; k <= to; k++) {
+      final interest  = balance * r;
+      final principal = -(pmt + interest);
+      totalInt  += interest;
+      totalPrin += principal;
+      balance    = balance * (1 + r) + pmt;
+    }
+    final f = _fmtC;
+    setState(() {
+      _amortResult =
+          '${tr("Zinsen", "Interest")}: ${f(totalInt)}\n'
+          '${tr("Tilgung", "Principal")}: ${f(totalPrin)}\n'
+          '${tr("Saldo", "Balance")}: ${f(balance)}';
+    });
+    _savePrefs();
+  }
+
+  // ── Cashflow / NPV / IRR ──────────────────────────────────────────────────────
+
+  void _computeNPV() {
+    final r = _parseNum(_npvRateCtrl.text);
+    if (r == null) {
+      setState(() { _cashError = tr('Zinssatz fehlt', 'Rate missing'); _cashResult = ''; });
+      return;
+    }
+    final rate = r / 100;
+    double npv = 0;
+    for (int i = 0; i < _cfCtrls.length; i++) {
+      npv += (_parseNum(_cfCtrls[i].text) ?? 0) / math.pow(1 + rate, i);
+    }
+    setState(() { _cashError = ''; _cashResult = 'NPV = ${_fmtC(npv)}'; });
+    widget.onResult(npv.abs());
+    _savePrefs();
+  }
+
+  void _computeIRR() {
+    final cfs = _cfCtrls.map((c) => _parseNum(c.text) ?? 0.0).toList();
+    if (cfs.isEmpty || cfs[0] >= 0) {
+      setState(() { _cashError = tr('CF0 muss negativ sein (Investition)', 'CF0 must be negative (investment)'); _cashResult = ''; });
+      return;
+    }
+    double npvAt(double r) {
+      double s = 0;
+      for (int i = 0; i < cfs.length; i++) s += cfs[i] / math.pow(1 + r, i);
+      return s;
+    }
+    // Bisektionssuche im Bereich [-99%, +1000%]
+    double lo = -0.999, hi = 10.0;
+    if (npvAt(lo) * npvAt(hi) > 0) {
+      setState(() { _cashError = tr('Kein IRR gefunden', 'No IRR found'); _cashResult = ''; });
+      return;
+    }
+    for (int k = 0; k < 100; k++) {
+      final mid = (lo + hi) / 2;
+      if (npvAt(lo) * npvAt(mid) <= 0) hi = mid; else lo = mid;
+      if ((hi - lo) < 1e-10) break;
+    }
+    final irr = (lo + hi) / 2 * 100;
+    setState(() { _cashError = ''; _cashResult = 'IRR = ${fmtNum(irr, dec: 4)} %'; });
+    _savePrefs();
+  }
+
+  // ── Zinskonversion ────────────────────────────────────────────────────────────
+
+  void _convNomToEff() {
+    final nom = _parseNum(_nomCtrl.text);
+    final m   = _parseNum(_mCtrl.text);
+    if (nom == null || m == null || m == 0) return;
+    final eff = (math.pow(1 + nom / 100 / m, m).toDouble() - 1) * 100;
+    setState(() { _effCtrl.text = _fmtInput(eff); _convResult = tr('Effektivzins', 'Effective Rate') + ': ${fmtNum(eff, dec: 4)} %'; });
+    _savePrefs();
+  }
+
+  void _convEffToNom() {
+    final eff = _parseNum(_effCtrl.text);
+    final m   = _parseNum(_mCtrl.text);
+    if (eff == null || m == null || m == 0) return;
+    final nom = m * (math.pow(1 + eff / 100, 1 / m) - 1) * 100;
+    setState(() { _nomCtrl.text = _fmtInput(nom); _convResult = tr('Nominalzins', 'Nominal Rate') + ': ${fmtNum(nom, dec: 4)} %'; });
+    _savePrefs();
+  }
+
+  // ── Break-Even ────────────────────────────────────────────────────────────────
+
+  void _computeBreakEven() {
+    final fc = _parseNum(_fcCtrl.text);
+    final vc = _parseNum(_vcCtrl.text);
+    final pr = _parseNum(_prCtrl.text);
+    if (fc == null || vc == null || pr == null) return;
+    final margin = pr - vc;
+    if (margin <= 0) {
+      setState(() => _beResult = tr('Preis ≤ Var.kosten → kein Break-Even', 'Price ≤ Var.cost → no break-even'));
+      return;
+    }
+    final bepUnits = fc / margin;
+    final bepRev   = bepUnits * pr;
+    setState(() {
+      _beResult = '${tr("BEP Menge", "BEP Units")}: ${fmtNum(bepUnits, dec: _neededDecimals(bepUnits))}\n'
+          '${tr("BEP Umsatz", "BEP Revenue")}: ${_fmtC(bepRev)}\n'
+          '${tr("Deckungsbeitrag/Stück", "Contrib. margin/unit")}: ${_fmtC(margin)}';
+    });
+    widget.onResult(bepRev);
+    _savePrefs();
+  }
+
+  // ── Hilfsfunktionen ───────────────────────────────────────────────────────────
+
+  double? _parseNum(String s) =>
+      double.tryParse(s.trim().replaceAll(',', '.').replaceAll("'", ''));
+
+  String _fmtInput(double v) {
+    if (v == v.truncateToDouble()) return v.toInt().toString();
+    final s = v.toStringAsFixed(8).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    return s;
+  }
+
+  String _fmtC(double v) => NumberFormat('#,##0.00', Platform.localeName).format(v);
+
+  // ── UI ────────────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Column(
+        children: [
+          // Modus-Auswahl
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+            child: Row(
+              children: [
+                _modeChip(_FinMode.tvm,       'TVM',                    cs),
+                _modeChip(_FinMode.amort,     tr('Amort', 'Amort'),     cs),
+                _modeChip(_FinMode.cash,      tr('Cashflow', 'Cash'),   cs),
+                _modeChip(_FinMode.conv,      tr('Konv', 'Conv'),       cs),
+                _modeChip(_FinMode.breakeven, tr('Break-Even', 'B/E'),  cs),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 16),
+              child: switch (_mode) {
+                _FinMode.tvm       => _buildTVM(cs),
+                _FinMode.amort     => _buildAmort(cs),
+                _FinMode.cash      => _buildCash(cs),
+                _FinMode.conv      => _buildConv(cs),
+                _FinMode.breakeven => _buildBE(cs),
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _modeChip(_FinMode m, String label, ColorScheme cs) => Padding(
+    padding: const EdgeInsets.only(right: 6),
+    child: ChoiceChip(
+      label: Text(label, style: const TextStyle(fontSize: 13)),
+      selected: _mode == m,
+      onSelected: (_) => setState(() { _mode = m; }),
+    ),
+  );
+
+  // TVM-Zeile: Label | Eingabefeld | Lösen-Button
+  Widget _tvmRow(String label, String hint, TextEditingController ctrl, _TVMField field, ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 50,
+            child: Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: cs.primary)),
+          ),
+          Expanded(
+            child: TextField(
+              controller: ctrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+              decoration: InputDecoration(
+                hintText: hint,
+                isDense: true,
+                border: const OutlineInputBorder(),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              ),
+              onChanged: (_) => _savePrefs(),
+            ),
+          ),
+          const SizedBox(width: 6),
+          SizedBox(
+            width: 68,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: cs.primary,
+                foregroundColor: cs.onPrimary,
+                minimumSize: const Size(0, 38),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => _solveTVM(field),
+              child: Text(tr('Lös.', 'Solve'), style: const TextStyle(fontSize: 12)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _resultBox(String text, ColorScheme cs) => Container(
+    margin: const EdgeInsets.only(top: 10),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(color: cs.primaryContainer, borderRadius: BorderRadius.circular(10)),
+    child: Text(text,
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: cs.onPrimaryContainer),
+        textAlign: TextAlign.center),
+  );
+
+  Widget _buildTVM(ColorScheme cs) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(tr('Zeitwert des Geldes', 'Time Value of Money'),
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: cs.primary),
+          textAlign: TextAlign.center),
+      const SizedBox(height: 6),
+      _tvmRow('N',              tr('Perioden', 'Periods'),          _nCtrl,   _TVMField.n,   cs),
+      _tvmRow('I%',             tr('Zins/Periode %', 'Rate/Period %'), _iCtrl, _TVMField.i, cs),
+      _tvmRow(tr('BW', 'PV'),   tr('Barwert', 'Present Value'),    _pvCtrl,  _TVMField.pv,  cs),
+      _tvmRow(tr('Rate', 'PMT'), tr('Zahlung/Periode', 'Payment/Period'), _pmtCtrl, _TVMField.pmt, cs),
+      _tvmRow(tr('EW', 'FV'),   tr('Endwert', 'Future Value'),     _fvCtrl,  _TVMField.fv,  cs),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          Text(tr('Zahlung: ', 'Payment: '), style: const TextStyle(fontSize: 13)),
+          const SizedBox(width: 6),
+          SegmentedButton<bool>(
+            segments: [
+              ButtonSegment(value: false, label: Text(tr('Ende', 'End'))),
+              ButtonSegment(value: true,  label: Text(tr('Anfang', 'Beg'))),
+            ],
+            selected: {_bgn},
+            onSelectionChanged: (s) { setState(() => _bgn = s.first); _savePrefs(); },
+            style: ButtonStyle(
+              minimumSize: WidgetStateProperty.all(const Size(60, 32)),
+              textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 12)),
+            ),
+          ),
+        ],
+      ),
+      if (_tvmResult.isNotEmpty) _resultBox(_tvmResult, cs),
+      if (_tvmError.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(_tvmError, style: TextStyle(color: cs.error), textAlign: TextAlign.center),
+        ),
+      const SizedBox(height: 10),
+      Text(
+        tr(
+          '4 Felder ausfüllen → «Lös.» beim gesuchten Feld.\n'
+          'Vorzeichen: Eingang positiv, Ausgang negativ.',
+          'Fill 4 fields → tap «Solve» on the unknown field.\n'
+          'Sign: inflow positive, outflow negative.',
+        ),
+        style: TextStyle(fontSize: 11, color: cs.onSurface.withValues(alpha: 0.5)),
+      ),
+    ],
+  );
+
+  Widget _buildAmort(ColorScheme cs) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(tr('Amortisation', 'Amortization'),
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: cs.primary),
+          textAlign: TextAlign.center),
+      Padding(
+        padding: const EdgeInsets.only(top: 2, bottom: 10),
+        child: Text(tr('Verwendet TVM-Werte (N, I%, BW, Rate)', 'Uses TVM values (N, I%, PV, PMT)'),
+            style: TextStyle(fontSize: 11, color: cs.onSurface.withValues(alpha: 0.55)),
+            textAlign: TextAlign.center),
+      ),
+      Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _amortFromCtrl,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: tr('Von Periode', 'From Period'),
+                border: const OutlineInputBorder(), isDense: true,
+              ),
+              onChanged: (_) => _savePrefs(),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: _amortToCtrl,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: tr('Bis Periode', 'To Period'),
+                border: const OutlineInputBorder(), isDense: true,
+              ),
+              onChanged: (_) => _savePrefs(),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 10),
+      ElevatedButton(
+        onPressed: _computeAmort,
+        style: ElevatedButton.styleFrom(backgroundColor: cs.primary, foregroundColor: cs.onPrimary),
+        child: Text(tr('Berechnen', 'Calculate')),
+      ),
+      if (_amortResult.isNotEmpty) _resultBox(_amortResult, cs),
+    ],
+  );
+
+  Widget _buildCash(ColorScheme cs) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(tr('Cashflow – NPV / IRR', 'Cash Flow – NPV / IRR'),
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: cs.primary),
+          textAlign: TextAlign.center),
+      const SizedBox(height: 8),
+      ...List.generate(_cfCtrls.length, (i) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 44,
+              child: Text('CF$i', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: cs.primary)),
+            ),
+            Expanded(
+              child: TextField(
+                controller: _cfCtrls[i],
+                keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                decoration: InputDecoration(
+                  isDense: true,
+                  border: const OutlineInputBorder(),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  hintText: i == 0 ? tr('Investition (neg.)', 'Investment (neg.)') : '0',
+                ),
+                onChanged: (_) { setState(() {}); _savePrefs(); },
+              ),
+            ),
+            if (i >= 2)
+              IconButton(
+                icon: Icon(Icons.remove_circle_outline, color: cs.error, size: 20),
+                onPressed: () { setState(() { _cfCtrls[i].dispose(); _cfCtrls.removeAt(i); }); _savePrefs(); },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
+          ],
+        ),
+      )),
+      TextButton.icon(
+        icon: const Icon(Icons.add, size: 18),
+        label: Text(tr('CF hinzufügen', 'Add CF'), style: const TextStyle(fontSize: 13)),
+        onPressed: () { setState(() => _cfCtrls.add(TextEditingController(text: '0'))); },
+      ),
+      const SizedBox(height: 4),
+      TextField(
+        controller: _npvRateCtrl,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          labelText: tr('Zinssatz % (für NPV)', 'Rate % (for NPV)'),
+          border: const OutlineInputBorder(), isDense: true,
+        ),
+        onChanged: (_) => _savePrefs(),
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          Expanded(
+            child: ElevatedButton(
+              onPressed: _computeNPV,
+              style: ElevatedButton.styleFrom(backgroundColor: cs.primary, foregroundColor: cs.onPrimary),
+              child: const Text('NPV'),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: ElevatedButton(
+              onPressed: _computeIRR,
+              style: ElevatedButton.styleFrom(backgroundColor: cs.secondary, foregroundColor: cs.onSecondary),
+              child: const Text('IRR'),
+            ),
+          ),
+        ],
+      ),
+      if (_cashResult.isNotEmpty) _resultBox(_cashResult, cs),
+      if (_cashError.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(_cashError, style: TextStyle(color: cs.error), textAlign: TextAlign.center),
+        ),
+    ],
+  );
+
+  Widget _buildConv(ColorScheme cs) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(tr('Zinskonversion', 'Interest Conversion'),
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: cs.primary),
+          textAlign: TextAlign.center),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _mCtrl,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(
+          labelText: tr('Perioden/Jahr (m)', 'Periods/Year (m)'),
+          helperText: tr('12 = monatlich · 4 = vierteljährlich · 1 = jährlich',
+                         '12 = monthly · 4 = quarterly · 1 = annual'),
+          border: const OutlineInputBorder(), isDense: true,
+        ),
+        onChanged: (_) => _savePrefs(),
+      ),
+      const SizedBox(height: 10),
+      TextField(
+        controller: _nomCtrl,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          labelText: tr('Nominalzins %', 'Nominal Rate %'),
+          border: const OutlineInputBorder(), isDense: true,
+        ),
+        onChanged: (_) => _savePrefs(),
+      ),
+      const SizedBox(height: 4),
+      ElevatedButton(
+        onPressed: _convNomToEff,
+        style: ElevatedButton.styleFrom(backgroundColor: cs.primary, foregroundColor: cs.onPrimary),
+        child: Text(tr('→ Effektivzins', '→ Effective Rate')),
+      ),
+      const SizedBox(height: 10),
+      TextField(
+        controller: _effCtrl,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          labelText: tr('Effektivzins %', 'Effective Rate %'),
+          border: const OutlineInputBorder(), isDense: true,
+        ),
+        onChanged: (_) => _savePrefs(),
+      ),
+      const SizedBox(height: 4),
+      ElevatedButton(
+        onPressed: _convEffToNom,
+        style: ElevatedButton.styleFrom(backgroundColor: cs.secondary, foregroundColor: cs.onSecondary),
+        child: Text(tr('→ Nominalzins', '→ Nominal Rate')),
+      ),
+      if (_convResult.isNotEmpty) _resultBox(_convResult, cs),
+    ],
+  );
+
+  Widget _buildBE(ColorScheme cs) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(tr('Break-Even', 'Break-Even'),
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: cs.primary),
+          textAlign: TextAlign.center),
+      const SizedBox(height: 12),
+      _beField(tr('Fixkosten', 'Fixed Costs'), _fcCtrl),
+      _beField(tr('Variable Kosten/Stück', 'Variable Cost/Unit'), _vcCtrl),
+      _beField(tr('Verkaufspreis/Stück', 'Selling Price/Unit'), _prCtrl),
+      const SizedBox(height: 4),
+      ElevatedButton(
+        onPressed: _computeBreakEven,
+        style: ElevatedButton.styleFrom(backgroundColor: cs.primary, foregroundColor: cs.onPrimary),
+        child: Text(tr('Berechnen', 'Calculate')),
+      ),
+      if (_beResult.isNotEmpty) _resultBox(_beResult, Theme.of(context).colorScheme),
+    ],
+  );
+
+  Widget _beField(String label, TextEditingController ctrl) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: TextField(
+      controller: ctrl,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(), isDense: true,
+      ),
+      onChanged: (_) => _savePrefs(),
+    ),
+  );
 }
 
 // ─── Privacy-Consent-Dialog ──────────────────────────────────────────────────
