@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -527,6 +528,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
   bool   _pendingOp = false;
   bool   _swapped   = false;
   bool   _hasError  = false;
+  bool   _bigKeys   = false;
 
   String? _repeatOp;
   double? _repeatVal;
@@ -535,6 +537,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
 
   String _liveResult = '';
   int _dispCursor = -1; // -1 = Cursor am Ende (Standard)
+  Timer? _saveTimer;
 
   final _histScrollCtrl = ScrollController();
 
@@ -558,6 +561,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
       _histFull    = p.getString('calc_hist_full')   ?? '';
       _eval        = p.getBool('calc_eval')          ?? false;
       _swapped     = p.getBool('calc_swapped')       ?? false;
+      _bigKeys     = p.getBool('calc_big_keys')      ?? false;
       _liveResult  = p.getString('calc_live_result') ?? '';
       _repeatOp    = p.getString('calc_repeat_op');
       _repeatVal   = p.getDouble('calc_repeat_val');
@@ -574,6 +578,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
     await p.setString('calc_hist_full',   _histFull);
     await p.setBool('calc_eval',          _eval);
     await p.setBool('calc_swapped',       _swapped);
+    await p.setBool('calc_big_keys',      _bigKeys);
     await p.setString('calc_live_result', _liveResult);
     if (_repeatOp != null) {
       await p.setString('calc_repeat_op', _repeatOp!);
@@ -599,8 +604,15 @@ class _CalculatorPageState extends State<CalculatorPage> {
 
   @override
   void dispose() {
+    _saveTimer?.cancel();
+    _savePrefs();
     _histScrollCtrl.dispose();
     super.dispose();
+  }
+
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 400), _savePrefs);
   }
 
   void _setVal(double v) {
@@ -687,6 +699,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
   }
 
   void _btn(String t) {
+    bool doEval = false;
     setState(() {
       _hasError = false;
       if (t != '=') _pendingOp = false;
@@ -734,6 +747,12 @@ class _CalculatorPageState extends State<CalculatorPage> {
       // ── = ──────────────────────────────────────────────────────────────────
       if (t == '=') {
         _dispCursor = -1;
+        _pendingOp = false;
+        // Hängenden Operator entfernen – verhindert, dass = dauerhaft abbricht
+        if (_expr.isNotEmpty && RegExp(r'[+\-*/]$').hasMatch(_expr)) {
+          _expr = _expr.substring(0, _expr.length - 1);
+          if (_disp.isNotEmpty) _disp = _disp.substring(0, _disp.length - 1);
+        }
         if (_eval && _repeatOp != null && _repeatVal != null) {
           final current = double.tryParse(_expr);
           if (current != null) {
@@ -743,7 +762,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
             _eval = false;
           }
         }
-        _evaluate();
+        doEval = true;
         return;
       }
 
@@ -824,8 +843,9 @@ class _CalculatorPageState extends State<CalculatorPage> {
       // Sicherheits-Clamp
       if (_dispCursor >= _disp.length) _dispCursor = -1;
     });
+    if (doEval) _evaluate();
     _refreshLiveResult();
-    _savePrefs();
+    _scheduleSave();
   }
 
   void _evaluate() {
@@ -891,7 +911,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
           style: ElevatedButton.styleFrom(
             backgroundColor: bg ?? cs.surfaceVariant,
             foregroundColor: fg ?? cs.onSurfaceVariant,
-            minimumSize: Size(0, minHeight),
+            minimumSize: Size(0, _bigKeys ? minHeight * 1.25 : minHeight),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
           onPressed: () => _btn(label),
@@ -928,27 +948,48 @@ class _CalculatorPageState extends State<CalculatorPage> {
               padding: const EdgeInsets.fromLTRB(6, 8, 6, 4),
               child: Column(
                 children: [
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: GestureDetector(
-                      onTap: () {
-                        setState(() => _swapped = !_swapped);
-                        _savePrefs();
-                      },
-                      child: Container(
-                        margin: const EdgeInsets.only(right: 4, bottom: 2),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          color: _swapped ? cs.primaryContainer : cs.surfaceVariant,
-                          border: Border.all(
-                            color: _swapped ? cs.primary : cs.outline.withValues(alpha: 0.5),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      GestureDetector(
+                        onTap: () {
+                          setState(() => _bigKeys = !_bigKeys);
+                          _scheduleSave();
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 4, bottom: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            color: _bigKeys ? cs.primaryContainer : cs.surfaceVariant,
+                            border: Border.all(
+                              color: _bigKeys ? cs.primary : cs.outline.withValues(alpha: 0.5),
+                            ),
                           ),
+                          child: Icon(Icons.expand, size: 16,
+                              color: _bigKeys ? cs.primary : cs.onSurfaceVariant),
                         ),
-                        child: Icon(Icons.swap_horiz, size: 16,
-                            color: _swapped ? cs.primary : cs.onSurfaceVariant),
                       ),
-                    ),
+                      GestureDetector(
+                        onTap: () {
+                          setState(() => _swapped = !_swapped);
+                          _scheduleSave();
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 4, bottom: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            color: _swapped ? cs.primaryContainer : cs.surfaceVariant,
+                            border: Border.all(
+                              color: _swapped ? cs.primary : cs.outline.withValues(alpha: 0.5),
+                            ),
+                          ),
+                          child: Icon(Icons.swap_horiz, size: 16,
+                              color: _swapped ? cs.primary : cs.onSurfaceVariant),
+                        ),
+                      ),
+                    ],
                   ),
                   _row(['CE', '←', '(', ')', '%'],
                       bgs: [fn,fn,fn,fn,fn], fgs: [fnFg,fnFg,fnFg,fnFg,fnFg]),
