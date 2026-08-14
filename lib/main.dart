@@ -772,7 +772,15 @@ class _CalculatorPageState extends State<CalculatorPage> {
         _repeatOp = null; _repeatVal = null; _liveResult = '';
         _dispCursor = -1;
       }
-      if (_eval) { _histFull = ''; _dispCursor = -1; }
+      if (_eval) {
+        _histFull = '';
+        _dispCursor = -1;
+        // _disp enthält nach Auswertung Tausendertrennzeichen (z.B. "1'234.5").
+        // _dispToExpr kann diese nicht entfernen → Parser-Fehler wenn Operator folgt.
+        // Zurück auf das saubere _expr-Format (result.toString(), keine Separatoren).
+        final v = double.tryParse(_expr);
+        if (v != null) _disp = v == v.truncateToDouble() ? v.toInt().toString() : _expr;
+      }
       _eval = false;
 
       // ── Einfügen an Cursor-Position ────────────────────────────────────────
