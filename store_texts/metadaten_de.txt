@@ -1,0 +1,17 @@
+UNTERTITEL (App-Informationen, max. 30):
+Währungs- und Finanzrechner
+
+WERBETEXT (max. 170):
+Rechner, Live-Wechselkurse für Währungen, Krypto und Edelmetalle, Zinseszins- und Finanzrechner in einer App – kostenlos, ohne Werbung und ohne Anmeldung.
+
+SUCHBEGRIFFE (max. 100, Komma, keine Leerzeichen):
+Währungsrechner,Wechselkurs,Devisen,Taschenrechner,Zinsrechner,Zinseszins,CHF,Euro,Dollar,Bitcoin
+
+KATEGORIE:
+Primär: Finanzen – Sekundär: Dienstprogramme
+
+DATENSCHUTZ-URL:
+https://stockmonitorch.github.io/fx-calc/privacy.html
+
+SUPPORT-URL:
+https://www.stock-monitor.ch

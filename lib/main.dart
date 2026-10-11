@@ -76,13 +76,30 @@ String _thousandFmt(String digits) {
   return buf.toString();
 }
 
-// Fügt Tausendertrennzeichen in einen Display-String ein (nur Ganzzahl-Teile ≥4 Stellen)
+// Dezimaltrennzeichen der System-Locale ("," in DE/AT, "." in CH/EN)
+String _decimalSep() {
+  try {
+    return NumberFormat.decimalPattern(Platform.localeName).symbols.DECIMAL_SEP;
+  } catch (_) {
+    return '.';
+  }
+}
+
+// Wandelt einen internen Eingabe-String ("1250.5×3") in die Anzeige um:
+// Tausendertrennzeichen (nur Ganzzahl-Teile ≥4 Stellen) + lokales Dezimalzeichen.
 String _addThousands(String s) {
-  return s.replaceAllMapped(RegExp(r'\d{4,}'), (m) {
-    if (m.start > 0 && s[m.start - 1] == '.') return m.group(0)!;
-    return _thousandFmt(m.group(0)!);
+  final dec = _decimalSep();
+  return s.replaceAllMapped(RegExp(r'(\d*)(\.\d*)?'), (m) {
+    final intPart = m.group(1)!;
+    final frac = m.group(2);
+    if (intPart.isEmpty && frac == null) return '';
+    final i = intPart.length >= 4 ? _thousandFmt(intPart) : intPart;
+    return frac == null ? i : '$i$dec${frac.substring(1)}';
   });
 }
+
+// Zahl als internen Eingabe-String ohne Formatierung ("1250", "0.5")
+String _rawNum(double v) => v == v.truncateToDouble() ? v.toInt().toString() : v.toString();
 
 // ─── Twint QR ────────────────────────────────────────────────────────────────
 
@@ -311,7 +328,7 @@ class _HomeScreenState extends State<HomeScreen> {
       CurrencyPage(initAmount: _memValue > 0 ? _memValue : 1, onResult: _onMemCurr, onCurrencyChanged: _onCurrencyChanged),
       SavingsPage(currency: _currency),
       FinancePage(initValue: _memValue, onResult: _onMemCalc),
-      InfoPage(onCheckUpdate: () => _checkForUpdate(showUpToDate: true)),
+      InfoPage(onCheckUpdate: Platform.isAndroid ? () => _checkForUpdate(showUpToDate: true) : null),
     ];
     return Scaffold(
       body: pages[_idx],
@@ -631,9 +648,11 @@ class _CalculatorPageState extends State<CalculatorPage> {
   String get _displayText {
     final filled = _filledDisp;
     if (filled.isEmpty) return '0';
+    if (_eval) return filled;
     if (_dispCursor >= 0) {
-      final pos = _dispCursor.clamp(0, filled.length);
-      return filled.substring(0, pos) + '│' + filled.substring(pos);
+      final local = filled.replaceAll('.', _decimalSep());
+      final pos = _dispCursor.clamp(0, local.length);
+      return local.substring(0, pos) + '│' + local.substring(pos);
     }
     return _addThousands(filled);
   }
@@ -652,7 +671,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
     if (_repeatVal == null) { _repeatOp = null; return; }
     const opMap = {'+': '＋', '-': '−', '*': '×', '/': '÷'};
     _repeatDispOp = opMap[_repeatOp] ?? _repeatOp;
-    _repeatDispVal = fmtNum(_repeatVal!, dec: _neededDecimals(_repeatVal!));
+    _repeatDispVal = _rawNum(_repeatVal!);
   }
 
   // Berechnet das Zwischenresultat – gibt neuen Wert zurück.
@@ -756,7 +775,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
         if (_eval && _repeatOp != null && _repeatVal != null) {
           final current = double.tryParse(_expr);
           if (current != null) {
-            final dispCurrent = fmtNum(current, dec: _neededDecimals(current));
+            final dispCurrent = _rawNum(current);
             _expr = '$_expr${_repeatOp!}${_repeatVal!}';
             _disp = '$dispCurrent${_repeatDispOp ?? _repeatOp!}${_repeatDispVal ?? _repeatVal.toString()}';
             _eval = false;
@@ -779,7 +798,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
         // _dispToExpr kann diese nicht entfernen → Parser-Fehler wenn Operator folgt.
         // Zurück auf das saubere _expr-Format (result.toString(), keine Separatoren).
         final v = double.tryParse(_expr);
-        if (v != null) _disp = v == v.truncateToDouble() ? v.toInt().toString() : _expr;
+        if (v != null) _disp = _rawNum(v);
       }
       _eval = false;
 
@@ -923,7 +942,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
           onPressed: () => _btn(label),
-          child: Text(label,
+          child: Text(label == '.' ? _decimalSep() : label,
               style: TextStyle(
                   fontSize: 18,
                   fontWeight: (label == '=' || ['＋','−','×','÷'].contains(label))
@@ -1112,7 +1131,7 @@ class _CurrencyPageState extends State<CurrencyPage> {
   void initState() {
     super.initState();
     if (widget.initAmount > 0) {
-      _input = widget.initAmount.toString();
+      _input = _rawNum(widget.initAmount);
     }
   }
 
@@ -1120,11 +1139,11 @@ class _CurrencyPageState extends State<CurrencyPage> {
   void didUpdateWidget(CurrencyPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initAmount != oldWidget.initAmount && widget.initAmount > 0 && _result.isEmpty) {
-      setState(() => _input = widget.initAmount.toString());
+      setState(() => _input = _rawNum(widget.initAmount));
     }
   }
 
-  String get _displayText => _input.isEmpty ? '0' : _input;
+  String get _displayText => _input.isEmpty ? '0' : _addThousands(_input);
 
   void _numBtn(String t) {
     setState(() {
@@ -1181,7 +1200,7 @@ class _CurrencyPageState extends State<CurrencyPage> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
           onPressed: () => _numBtn(label),
-          child: Text(label, style: const TextStyle(fontSize: 17)),
+          child: Text(label == '.' ? _decimalSep() : label, style: const TextStyle(fontSize: 17)),
         ),
       ),
     );
@@ -2399,7 +2418,8 @@ class _PrivacyConsentDialog extends StatelessWidget {
           child: Text(tr('Datenschutzerklärung', 'Privacy Policy')),
         ),
         TextButton(
-          onPressed: () => SystemNavigator.pop(),
+          // iOS ignoriert SystemNavigator.pop() → dort nur Dialog schliessen (wie Chart Monitor)
+          onPressed: () => Platform.isIOS ? Navigator.of(context).pop() : SystemNavigator.pop(),
           child: Text(tr('Ablehnen', 'Decline'),
               style: TextStyle(color: Colors.grey)),
         ),
@@ -2531,6 +2551,8 @@ class _InfoPageState extends State<InfoPage> {
                 ),
               ),
             ),
+            // Spenden-Links (TWINT/PayPal) sind im App Store nicht erlaubt (Guideline 3.1.1)
+            if (!Platform.isIOS) ...[
             const SizedBox(height: 8),
             Card(
               child: Padding(
@@ -2582,6 +2604,7 @@ class _InfoPageState extends State<InfoPage> {
                 ),
               ),
             ),
+            ],
             const SizedBox(height: 12),
             TextButton(
               onPressed: () => launchUrl(

@@ -1,0 +1,33 @@
+FX Calc combines a calculator, currency converter and finance calculator in one lean app. Free, no ads and no sign-up.
+
+CURRENCY CONVERTER
+• Live exchange rates from Yahoo Finance
+• More than 20 currencies, including CHF, EUR, USD, GBP and JPY
+• Cryptocurrencies: Bitcoin, Ethereum, XRP and Solana
+• Precious metals and commodities: gold, silver, platinum, palladium and copper
+• Quick picks for the most common currency pairs
+• Swap currencies with one tap
+
+CALCULATOR
+• Brackets, percent, square root and square
+• Thousands separators based on your region settings
+• Larger keys if you prefer
+• Use results directly in the currency converter and vice versa
+
+SAVINGS CALCULATOR
+• Compound interest with initial capital, duration and interest rate
+• Yearly deposits (savings plan) or withdrawals (withdrawal plan)
+• Overview of total paid in and interest earned
+• For withdrawals: how long the capital lasts
+
+FINANCE CALCULATOR
+• Time value of money (TVM): solve for periods, rate, present value, payment or future value
+• Amortization: interest and principal for any range of periods
+• Cash flow analysis with net present value (NPV) and internal rate of return (IRR)
+• Interest conversion between nominal and effective rate
+• Break-even analysis
+
+PRIVACY
+FX Calc does not store any personal data. Only the selected currency pairs are requested from Yahoo Finance to get exchange rates.
+
+FX Calc is part of Stock Monitor – www.stock-monitor.ch

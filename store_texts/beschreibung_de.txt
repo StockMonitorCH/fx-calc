@@ -1,0 +1,33 @@
+FX Calc vereint Taschenrechner, Währungsrechner und Finanzrechner in einer schlanken App. Kostenlos, ohne Werbung und ohne Anmeldung.
+
+WÄHRUNGSRECHNER
+• Live-Wechselkurse von Yahoo Finance
+• Über 20 Währungen, darunter CHF, EUR, USD, GBP und JPY
+• Kryptowährungen: Bitcoin, Ethereum, XRP und Solana
+• Edelmetalle und Rohstoffe: Gold, Silber, Platin, Palladium und Kupfer
+• Schnellwahl für die häufigsten Währungspaare
+• Währungen mit einem Tipp tauschen
+
+TASCHENRECHNER
+• Klammern, Prozent, Wurzel und Quadrat
+• Zahlen mit Tausendertrennzeichen nach deinen Ländereinstellungen
+• Grössere Tasten auf Wunsch
+• Ergebnisse direkt im Währungsrechner weiterverwenden und umgekehrt
+
+ZINSRECHNER
+• Zinseszins mit Startkapital, Laufzeit und Zinssatz
+• Jährliche Einzahlungen (Sparplan) oder Entnahmen (Entnahmeplan)
+• Übersicht über eingezahlten Betrag und Zinsgewinn
+• Bei Entnahmen: wie lange das Kapital reicht
+
+FINANZRECHNER
+• Zeitwert des Geldes (TVM): Perioden, Zins, Barwert, Rate oder Endwert berechnen
+• Amortisation: Zins- und Tilgungsanteile für beliebige Perioden
+• Cashflow-Analyse mit Kapitalwert (NPV) und internem Zinsfuss (IRR)
+• Zinskonversion zwischen Nominal- und Effektivzins
+• Break-Even-Analyse
+
+DATENSCHUTZ
+FX Calc speichert keine persönlichen Daten. Für die Wechselkurse werden nur die gewählten Währungspaare bei Yahoo Finance abgefragt.
+
+FX Calc ist Teil von Stock Monitor – www.stock-monitor.ch

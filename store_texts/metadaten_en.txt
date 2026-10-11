@@ -1,0 +1,17 @@
+SUBTITLE (App Information, max. 30):
+Currency & Finance Calculator
+
+PROMOTIONAL TEXT (max. 170):
+Calculator, live exchange rates for currencies, crypto and precious metals, compound interest and finance calculator in one app – free, no ads, no sign-up.
+
+KEYWORDS (max. 100, comma-separated, no spaces):
+currency,converter,exchange,rate,forex,calculator,interest,compound,TVM,NPV,crypto,gold,CHF,EUR,USD
+
+CATEGORY:
+Primary: Finance – Secondary: Utilities
+
+PRIVACY POLICY URL:
+https://stockmonitorch.github.io/fx-calc/privacy.html
+
+SUPPORT URL:
+https://www.stock-monitor.ch
